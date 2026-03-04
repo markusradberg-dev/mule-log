@@ -158,59 +158,60 @@ function MapView({ mules, onSelectMule }) {
   const mapInstanceRef = useRef(null);
 
   useEffect(() => {
-    if (!document.getElementById("leaflet-css")) {
-      const link = document.createElement("link");
-      link.id = "leaflet-css"; link.rel = "stylesheet";
-      link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
-      document.head.appendChild(link);
-    }
     const init = () => {
-      if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
-      const L = window.L;
-      const map = L.map(mapRef.current, { preferCanvas: true }).setView([48, 15], 3);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
-      setTimeout(() => map.invalidateSize(), 100);
+      if (mapInstanceRef.current) return;
+      const map = new window.google.maps.Map(mapRef.current, {
+        center: { lat: 48, lng: 15 }, zoom: 4,
+        styles: [
+          { elementType: "geometry", stylers: [{ color: "#1a1208" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#C8923A" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#0a0703" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0a0f1a" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a1f0e" }] },
+          { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#3a2e1a" }] },
+          { featureType: "poi", stylers: [{ visibility: "off" }] },
+          { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#3a2e1a" }] },
+          { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#0f0b06" }] },
+        ]
+      });
+      mapInstanceRef.current = map;
+
       mules.forEach(async mule => {
         if (!mule.location && !mule.city) return;
         try {
-          // Use cached coords if available
+          let lat, lng;
           if (mule.lat && mule.lng) {
-            const lat = mule.lat, lng = mule.lng;
-            const avg = getAvg(mule);
-            const color = avg >= 4 ? '#C8923A' : avg >= 3 ? '#8a8a20' : '#c85050';
-            const icon = L.divIcon({ html: `<div style='background:${color};width:34px;height:34px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer'>🍺</div>`, className: '', iconSize: [34,34], iconAnchor: [17,17] });
-            const marker = L.marker([lat, lng], { icon }).addTo(map);
-            marker.bindPopup(`<div style='font-family:Georgia,serif;min-width:160px;padding:4px'><b style='font-size:14px'>${mule.name}</b><br><span style='color:#888;font-size:12px'>📍 ${mule.city || mule.location}</span><br><span style='color:#C8923A;font-weight:bold'>⭐ ${fmtAvg(avg)}/5</span>${mule.price ? `<br><span style='color:#666;font-size:12px'>💰 ${mule.price} SEK</span>` : ''}</div>`);
-            marker.on('click', () => onSelectMule(mule));
-            return;
+            lat = mule.lat; lng = mule.lng;
+          } else {
+            const searchQ = mule.city || mule.location;
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQ)}&format=json&limit=1`);
+            const data = await res.json();
+            if (!data[0]) return;
+            lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon);
+            fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${mule.id}`, { method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ lat, lng }) }).catch(() => {});
           }
-          const searchQ = mule.city || mule.location;
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQ)}&format=json&limit=1`);
-          const data = await res.json();
-          if (!data[0]) return;
-          const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
-          // Save coords to DB for next time
-          fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${mule.id}`, { method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ lat, lng }) }).catch(() => {});
           const avg = getAvg(mule);
-          const color = avg >= 4 ? "#C8923A" : avg >= 3 ? "#8a8a20" : "#c85050";
-          const icon = L.divIcon({
-            html: `<div style="background:${color};width:34px;height:34px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer">🍺</div>`,
-            className: "", iconSize: [34, 34], iconAnchor: [17, 17]
+          const color = avg >= 4 ? '#C8923A' : avg >= 3 ? '#8a8a20' : '#c85050';
+          const marker = new window.google.maps.Marker({
+            position: { lat, lng }, map,
+            icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+            title: mule.name
           });
-          const marker = L.marker([lat, lng], { icon }).addTo(map);
-          marker.bindPopup(`<div style="font-family:Georgia,serif;min-width:160px;padding:4px"><b style="font-size:14px">${mule.name}</b><br><span style="color:#888;font-size:12px">📍 ${mule.location}</span><br><span style="color:#C8923A;font-weight:bold">⭐ ${fmtAvg(avg)}/5</span>${mule.price ? `<br><span style="color:#666;font-size:12px">💰 ${mule.price} SEK</span>` : ""}</div>`);
-          marker.on("click", () => onSelectMule(mule));
-        } catch {}
+          const infoWindow = new window.google.maps.InfoWindow({
+            content: `<div style="font-family:Georgia,serif;padding:4px;min-width:140px"><b>${mule.name}</b><br><span style="color:#888;font-size:12px">📍 ${mule.city || mule.location}</span><br><span style="color:#C8923A;font-weight:bold">⭐ ${fmtAvg(avg)}/5</span>${mule.price ? `<br><span style="font-size:12px">💰 ${mule.price} SEK</span>` : ''}</div>`
+          });
+          marker.addListener('click', () => { infoWindow.open(map, marker); onSelectMule(mule); });
+        } catch(e) {}
       });
-      mapInstanceRef.current = map;
     };
-    if (window.L) { init(); }
+
+    if (window.google && window.google.maps) { init(); }
     else {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}`;
       s.onload = init; document.head.appendChild(s);
     }
-    return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
+    return () => { mapInstanceRef.current = null; };
   }, [mules]);
 
   return (
@@ -242,14 +243,22 @@ function MapPicker({ onSelect, onClose }) {
   useEffect(() => {
     const loadMap = () => {
       if (mapInstanceRef.current) return;
-      const L = window.L;
-      const map = L.map(mapRef.current, { preferCanvas: true }).setView([48, 15], 4);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
-      setTimeout(() => map.invalidateSize(), 100);
-      map.on("click", async (e) => {
-        const { lat, lng } = e.latlng;
-        if (markerRef.current) markerRef.current.remove();
-        markerRef.current = L.marker([lat, lng]).addTo(map);
+      const map = new window.google.maps.Map(mapRef.current, {
+        center: { lat: 48, lng: 15 }, zoom: 4,
+        styles: [
+          { elementType: "geometry", stylers: [{ color: "#1a1208" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#C8923A" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#0a0703" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0a0f1a" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a1f0e" }] },
+          { featureType: "poi", stylers: [{ visibility: "off" }] },
+          { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#0f0b06" }] },
+        ]
+      });
+      map.addListener('click', async (e) => {
+        const lat = e.latLng.lat(), lng = e.latLng.lng();
+        if (markerRef.current) markerRef.current.setMap(null);
+        markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map });
         const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
         const data = await res.json();
         const loc = data.display_name?.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
@@ -257,13 +266,13 @@ function MapPicker({ onSelect, onClose }) {
       });
       mapInstanceRef.current = map;
     };
-    if (window.L) { loadMap(); }
+    if (window.google && window.google.maps) { loadMap(); }
     else {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyAF5TBYdp44LkdpzYE8524GRu1syGvicYQ`;
       s.onload = loadMap; document.head.appendChild(s);
     }
-    return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
+    return () => { mapInstanceRef.current = null; };
   }, []);
 
   const search = async () => {
@@ -274,10 +283,10 @@ function MapPicker({ onSelect, onClose }) {
 
   const selectResult = (r) => {
     const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
-    const L = window.L;
-    if (markerRef.current) markerRef.current.remove();
-    markerRef.current = L.marker([lat, lng]).addTo(mapInstanceRef.current);
-    mapInstanceRef.current.setView([lat, lng], 14);
+    if (markerRef.current) markerRef.current.setMap(null);
+    markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map: mapInstanceRef.current });
+    mapInstanceRef.current.setCenter({ lat, lng });
+    mapInstanceRef.current.setZoom(14);
     const loc = r.display_name.split(",").slice(0, 3).join(", ");
     setPin({ location: loc }); setResults([]); setQuery(loc);
   };
@@ -295,10 +304,10 @@ function MapPicker({ onSelect, onClose }) {
               if (!navigator.geolocation) return alert("GPS not available");
               navigator.geolocation.getCurrentPosition(async pos => {
                 const { latitude: lat, longitude: lng } = pos.coords;
-                const L = window.L;
-                if (markerRef.current) markerRef.current.remove();
-                markerRef.current = L.marker([lat, lng]).addTo(mapInstanceRef.current);
-                mapInstanceRef.current.setView([lat, lng], 16);
+                if (markerRef.current) markerRef.current.setMap(null);
+                markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map: mapInstanceRef.current });
+                mapInstanceRef.current.setCenter({ lat, lng });
+                mapInstanceRef.current.setZoom(16);
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
                 const data = await res.json();
                 const loc = data.display_name?.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
@@ -356,6 +365,7 @@ function LoginScreen({ onLogin }) {
   return (
     <div style={{ minHeight: "100vh", background: "#0a0703", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet" />
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
       <MuleLogo size={80} />
       <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, fontWeight: 900, color: "#C8923A", margin: "12px 0 4px" }}>The Mule Hunt</h1>
       <p style={{ color: "#5a4a32", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: 40 }}>Who's drinking tonight?</p>
@@ -705,6 +715,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: "#0a0703", fontFamily: "'Georgia', serif", color: "#e8d5b0" }}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet" />
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 
       {/* Header */}
       <div style={{ background: "linear-gradient(180deg, #1a1006 0%, #0a0703 100%)", borderBottom: "1px solid #2a1f0e", padding: "28px 24px 20px", textAlign: "center", position: "relative" }}>
