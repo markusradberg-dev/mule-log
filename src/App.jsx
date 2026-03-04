@@ -26,22 +26,19 @@ async function dbInsert(mule) {
   return res.json();
 }
 async function dbUpdate(id, mule) {
-  console.log("Updating mule id:", id, mule);
   const body = {
     name: mule.name, location: mule.location, date: mule.date || null,
     rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
     added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
     price: mule.price ? parseInt(mule.price) : null,
-    image: mule.image || null,
   };
-  console.log("PATCH body:", JSON.stringify(body));
+  if (mule.imageChanged) body.image = mule.image || null;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${id}`, {
     method: "PATCH",
     headers: { ...headers, Prefer: "return=representation" },
     body: JSON.stringify(body)
   });
   const text = await res.text();
-  console.log("PATCH response status:", res.status, text);
   if (!res.ok) throw new Error(text);
   return text ? JSON.parse(text) : {};
 }
@@ -496,11 +493,11 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
     r.onload = evt => {
       const img = new Image();
       img.onload = () => {
-        const MAX = 800; let w = img.width, h = img.height;
+        const MAX = 600; let w = img.width, h = img.height;
         if (w > h && w > MAX) { h = h * MAX / w; w = MAX; } else if (h > MAX) { w = w * MAX / h; h = MAX; }
         const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
         canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        setForm(p => ({ ...p, image: canvas.toDataURL("image/jpeg", 0.7) }));
+        setForm(p => ({ ...p, image: canvas.toDataURL("image/jpeg", 0.5), imageChanged: true }));
       };
       img.src = evt.target.result;
     };
@@ -614,8 +611,7 @@ export default function App() {
   const updateMule = async mule => {
     await dbUpdate(editingMule.id, { ...mule, rating: (mule.ratingTaste + mule.ratingLooks) / 2 });
     setEditingMule(null);
-    setMules([]);
-    await load();
+    window.location.reload();
   };
   const deleteMule = async id => { await dbDelete(id); setMules(p => p.filter(m => m.id !== id)); };
 
