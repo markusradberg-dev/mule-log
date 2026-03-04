@@ -19,7 +19,7 @@ async function dbInsert(mule) {
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
       added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
       price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
-      tasted_by: mule.tastedBy,
+
     })
   });
   if (!res.ok) throw new Error(await res.text());
@@ -35,8 +35,15 @@ function rowToMule(row) {
     id: row.id, name: row.name, location: row.location, date: row.date,
     rating: row.rating, ratingTaste: row.rating_taste, ratingLooks: row.rating_looks,
     addedBy: row.added_by,
-    tastedBy: Array.isArray(row.tasted_by) ? row.tasted_by : row.tasted_by ? [row.tasted_by] : [],
-    notes: row.notes, tags: row.tags || [], price: row.price,
+    tastedBy: (() => {
+      if (Array.isArray(row.tasted_by) && row.tasted_by.length > 0) return row.tasted_by;
+      if (row.tasted_by) return [row.tasted_by];
+      // fallback: parse from notes
+      const m = (row.notes || '').match(/\[tasted:([^\]]+)\]/);
+      if (m) return m[1].split(',');
+      return [];
+    })(),
+    notes: (row.notes || '').replace(/\[tasted:[^\]]+\]\s?/, ''), tags: row.tags || [], price: row.price,
     image: row.image, createdAt: row.created_at,
   };
 }
@@ -476,7 +483,9 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
     if (!form.name || !form.location) return alert("Name and location are required!");
     setSaving(true);
     const tastedByArr = form.tastedBy === "both" ? ["Markus", "Anders"] : [form.tastedBy];
-    await onSave({ ...form, rating: (form.ratingTaste + form.ratingLooks) / 2, addedBy: currentUser, tastedBy: tastedByArr });
+    const tastedNote = `[tasted:${tastedByArr.join(',')}]`;
+    const notesWithTasted = tastedNote + (form.notes ? ' ' + form.notes : '');
+    await onSave({ ...form, notes: notesWithTasted, rating: (form.ratingTaste + form.ratingLooks) / 2, addedBy: currentUser, tastedBy: tastedByArr });
     setSaving(false);
   };
 
@@ -586,7 +595,7 @@ export default function App() {
     });
 
   const avgRating = mules.length ? fmtAvg(mules.reduce((s, m) => s + getAvg(m), 0) / mules.length) : "—";
-  const cities = new Set(mules.map(m => m.location?.split(",")[0]?.trim().toLowerCase()).filter(Boolean));
+  const cities = new Set(mules.map(m => m.location?.split(/[,\/]/)[0]?.trim().toLowerCase()).filter(Boolean));
   const bestValue = mules.filter(m => m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
 
   return (
