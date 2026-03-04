@@ -19,7 +19,7 @@ async function dbInsert(mule) {
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
       added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
       price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
-      // tasted_by saved in notes workaround
+      tasted_by: mule.tastedBy,
     })
   });
   if (!res.ok) throw new Error(await res.text());
@@ -586,7 +586,7 @@ export default function App() {
     });
 
   const avgRating = mules.length ? fmtAvg(mules.reduce((s, m) => s + getAvg(m), 0) / mules.length) : "—";
-  const cities = new Set(mules.map(m => m.location?.split(",")[0]?.trim()).filter(Boolean));
+  const cities = new Set(mules.map(m => m.location?.split(",")[0]?.trim().toLowerCase()).filter(Boolean));
   const bestValue = mules.filter(m => m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
 
   return (
