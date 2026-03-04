@@ -5,6 +5,21 @@ const GOOGLE_KEY = "AIzaSyAF5TBYdp44LkdpzYE8524GRu1syGvicYQ";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFxeGZoZml2dWxha3Z5ZmhmdXhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1NzkzNjIsImV4cCI6MjA4ODE1NTM2Mn0.1j3E5o_nyb61sRSNvdhofRPpeWaKvrnCDhXe7yuxqK0";
 const USERS = { Markus: "1337", Anders: "1337" };
 
+// ── City normalization ───────────────────────────────────────────────────────
+function normalizeCity(city) {
+  if (!city) return "";
+  return city.trim()
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove accents: á→a, ö→o etc
+    .replace(/[^a-z0-9\s]/g, "") // remove special chars
+    .trim();
+}
+function displayCity(city) {
+  if (!city) return "";
+  // capitalize first letter of each word
+  return city.trim().replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // ── Country flags ─────────────────────────────────────────────────────────────
 const COUNTRY_FLAGS = {
   albania: "🇦🇱", sweden: "🇸🇪", uk: "🇬🇧", "united kingdom": "🇬🇧", england: "🇬🇧",
@@ -757,8 +772,9 @@ function Leaderboard({ mules }) {
   const markusValue = markusMules.filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
   const andersValue = andersMules.filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
   const topMules = [...mules].sort((a,b) => getAvg(b) - getAvg(a)).slice(0, 5);
-  const cities = [...new Set(mules.map(m => (m.city||'').toLowerCase()).filter(Boolean))];
-  const topCity = cities.sort((a,b) => mules.filter(m => (m.city||'').toLowerCase()===b).length - mules.filter(m => (m.city||'').toLowerCase()===a).length)[0];
+  const lcities = [...new Set(mules.map(m => normalizeCity(m.city).toLowerCase()).filter(Boolean))];
+  const topCity = lcities.sort((a,b) => mules.filter(m => normalizeCity(m.city)===b).length - mules.filter(m => normalizeCity(m.city)===a).length)[0];
+  const topCityDisplay = topCity ? displayCity(mules.find(m => normalizeCity(m.city)===topCity)?.city || topCity) : null;
 
   const statBox = (label, markusVal, andersVal, higher = "higher") => {
     const mWins = higher === "higher" ? markusVal > andersVal : markusVal < andersVal;
@@ -817,7 +833,7 @@ function Leaderboard({ mules }) {
         </div>
         <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 16 }}>
           <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🏙️ Most Visited City</div>
-          {topCity && <><div style={{ color: "#e8d5b0", fontWeight: 700, textTransform: "capitalize" }}>{topCity}</div><div style={{ color: "#5a4a32", fontSize: 12 }}>{mules.filter(m => (m.city||'').toLowerCase()===topCity).length} mules</div></>}
+          {topCity && <><div style={{ color: "#e8d5b0", fontWeight: 700 }}>{topCityDisplay}</div><div style={{ color: "#5a4a32", fontSize: 12 }}>{mules.filter(m => normalizeCity(m.city)===topCity).length} mules</div></>}
         </div>
       </div>
     </div>
@@ -869,7 +885,7 @@ export default function App() {
     .filter(m => { const q = search.toLowerCase(); return !q || m.name?.toLowerCase().includes(q) || m.location?.toLowerCase().includes(q); })
     .filter(m => !filterTag || m.tags?.includes(filterTag))
     .filter(m => { if (!filterWho) return true; return m.tastedBy?.includes(filterWho); })
-    .filter(m => !filterCity || (m.city || '').toLowerCase() === filterCity.toLowerCase())
+    .filter(m => !filterCity || normalizeCity(m.city) === filterCity)
     .sort((a, b) => {
       if (sortBy === "newest") return new Date(b.createdAt) - new Date(a.createdAt);
       if (sortBy === "oldest") return new Date(a.createdAt) - new Date(b.createdAt);
@@ -883,7 +899,7 @@ export default function App() {
     });
 
   const avgRating = mules.length ? fmtAvg(mules.reduce((s, m) => s + getAvg(m), 0) / mules.length) : "—";
-  const cities = new Set(mules.map(m => (m.city || '').trim().toLowerCase()).filter(m => m));
+  const cities = new Set(mules.map(m => normalizeCity(m.city)).filter(Boolean));
   const bestValue = mules.filter(m => m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
   const now = new Date();
   const monthMules = mules.filter(m => { if (!m.createdAt) return false; const d = new Date(m.createdAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
@@ -957,7 +973,11 @@ export default function App() {
             {allTags.length > 0 && <select value={filterTag} onChange={e => setFilterTag(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}><option value="">All Tags</option>{allTags.map(t => <option key={t} value={t}>{t}</option>)}</select>}
             <select value={filterCity} onChange={e => setFilterCity(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}>
               <option value="">All Cities</option>
-              {[...new Set(mules.map(m => m.city).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
+              {(() => {
+                const seen = new Map();
+                mules.forEach(m => { if (m.city) { const n = normalizeCity(m.city); if (!seen.has(n)) seen.set(n, m.city); } });
+                return [...seen.entries()].sort((a,b) => a[0].localeCompare(b[0])).map(([n, original]) => <option key={n} value={n}>{displayCity(original)}</option>);
+              })()}
             </select>
                     <button onClick={() => setShowH2H(true)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", color: "#C8923A", borderRadius: 10, padding: "10px 16px", cursor: "pointer", fontSize: 14, whiteSpace: "nowrap" }}>⚔️ Compare</button>
     <button onClick={() => setShowAdd(true)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", fontFamily: "'Playfair Display', serif" }}>+ Log a Mule</button>
