@@ -4,6 +4,30 @@ const SUPABASE_URL = "https://aqxfhfivulakvyfhfuxd.supabase.co";
 const GOOGLE_KEY = "AIzaSyAF5TBYdp44LkdpzYE8524GRu1syGvicYQ";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFxeGZoZml2dWxha3Z5ZmhmdXhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1NzkzNjIsImV4cCI6MjA4ODE1NTM2Mn0.1j3E5o_nyb61sRSNvdhofRPpeWaKvrnCDhXe7yuxqK0";
 const USERS = { Markus: "1337", Anders: "1337" };
+
+// ── Country flags ─────────────────────────────────────────────────────────────
+const COUNTRY_FLAGS = {
+  albania: "🇦🇱", sweden: "🇸🇪", uk: "🇬🇧", "united kingdom": "🇬🇧", england: "🇬🇧",
+  france: "🇫🇷", germany: "🇩🇪", italy: "🇮🇹", spain: "🇪🇸", portugal: "🇵🇹",
+  netherlands: "🇳🇱", belgium: "🇧🇪", austria: "🇦🇹", switzerland: "🇨🇭",
+  norway: "🇳🇴", denmark: "🇩🇰", finland: "🇫🇮", poland: "🇵🇱",
+  croatia: "🇭🇷", serbia: "🇷🇸", greece: "🇬🇷", turkey: "🇹🇷",
+  usa: "🇺🇸", "united states": "🇺🇸", canada: "🇨🇦", australia: "🇦🇺",
+  japan: "🇯🇵", thailand: "🇹🇭", montenegro: "🇲🇪", "north macedonia": "🇲🇰",
+  slovenia: "🇸🇮", czechia: "🇨🇿", hungary: "🇭🇺", romania: "🇷🇴",
+  bulgaria: "🇧🇬", ukraine: "🇺🇦", russia: "🇷🇺", estonia: "🇪🇪",
+  latvia: "🇱🇻", lithuania: "🇱🇹", ireland: "🇮🇪", scotland: "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+  morocco: "🇲🇦", egypt: "🇪🇬", mexico: "🇲🇽", brazil: "🇧🇷",
+  argentina: "🇦🇷", chile: "🇨🇱", colombia: "🇨🇴",
+};
+function getFlag(mule) {
+  const loc = (mule.city || mule.location || "").toLowerCase();
+  for (const [country, flag] of Object.entries(COUNTRY_FLAGS)) {
+    if (loc.includes(country)) return flag;
+  }
+  return "🌍";
+}
+
 const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" };
 
 async function dbGetAll() {
@@ -432,7 +456,7 @@ function MuleCard({ mule, onClick }) {
       </div>
       <div style={{ padding: 16 }}>
         <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, color: "#e8d5b0", fontWeight: 700, marginBottom: 4 }}>{mule.name}</div>
-        <div style={{ color: "#7a6a52", fontSize: 13, marginBottom: 10 }}>📍 {mule.city ? `${mule.city}` : ''}{mule.city && mule.location ? ' · ' : ''}{mule.location || (!mule.city ? 'Unknown' : '')}</div>
+        <div style={{ color: "#7a6a52", fontSize: 13, marginBottom: 10 }}>{getFlag(mule)} {mule.city || mule.location || "Unknown"}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <StarRating value={avg} size={18} />
@@ -653,6 +677,153 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
   );
 }
 
+
+
+// ── Head to Head ──────────────────────────────────────────────────────────────
+function HeadToHead({ mules, onClose }) {
+  const [muleA, setMuleA] = useState(null);
+  const [muleB, setMuleB] = useState(null);
+  const [step, setStep] = useState("A"); // "A" | "B" | "result"
+
+  const selectMule = (m) => {
+    if (step === "A") { setMuleA(m); setStep("B"); }
+    else if (step === "B" && m.id !== muleA.id) { setMuleB(m); setStep("result"); }
+  };
+
+  const CompareRow = ({ label, a, b, higher = "higher" }) => {
+    const aWins = higher === "higher" ? a > b : a < b;
+    const bWins = higher === "higher" ? b > a : b < a;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #2a1f0e" }}>
+        <div style={{ flex: 1, textAlign: "right", color: aWins ? "#C8923A" : "#e8d5b0", fontWeight: aWins ? 700 : 400 }}>{a}{aWins ? " 👑" : ""}</div>
+        <div style={{ width: 80, textAlign: "center", color: "#5a4a32", fontSize: 11, textTransform: "uppercase" }}>{label}</div>
+        <div style={{ flex: 1, textAlign: "left", color: bWins ? "#C8923A" : "#e8d5b0", fontWeight: bWins ? 700 : 400 }}>{bWins ? "👑 " : ""}{b}</div>
+      </div>
+    );
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, backdropFilter: "blur(4px)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 20, maxWidth: 560, width: "100%", maxHeight: "90vh", overflowY: "auto", padding: 24 }}>
+        <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#C8923A", marginBottom: 4 }}>⚔️ Head to Head</div>
+        {step !== "result" && <div style={{ color: "#5a4a32", fontSize: 13, marginBottom: 16 }}>Pick {step === "A" ? "the first" : "the second"} mule to compare</div>}
+        {step !== "result" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 400, overflowY: "auto" }}>
+            {mules.filter(m => step === "B" ? m.id !== muleA?.id : true).map(m => (
+              <div key={m.id} onClick={() => selectMule(m)} style={{ background: "#0f0b06", border: "1px solid #2a1f0e", borderRadius: 10, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "#C8923A"} onMouseLeave={e => e.currentTarget.style.borderColor = "#2a1f0e"}>
+                {m.images && m.images[0] && <img src={m.images[0]} style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover" }} />}
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "#e8d5b0", fontWeight: 700 }}>{m.name}</div>
+                  <div style={{ color: "#5a4a32", fontSize: 12 }}>{getFlag(m)} {m.city || m.location}</div>
+                </div>
+                <div style={{ color: "#C8923A" }}>⭐ {fmtAvg(getAvg(m))}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+              {[muleA, muleB].map((m, i) => (
+                <div key={i} style={{ flex: 1, background: "#0f0b06", borderRadius: 12, padding: 12, textAlign: "center", border: "1px solid #2a1f0e" }}>
+                  {m.images && m.images[0] && <img src={m.images[0]} style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 8, marginBottom: 8 }} />}
+                  <div style={{ color: "#e8d5b0", fontWeight: 700, fontSize: 14 }}>{m.name}</div>
+                  <div style={{ color: "#5a4a32", fontSize: 11 }}>{getFlag(m)} {m.city || m.location}</div>
+                </div>
+              ))}
+            </div>
+            <CompareRow label="Taste" a={muleA.ratingTaste || getAvg(muleA)} b={muleB.ratingTaste || getAvg(muleB)} />
+            <CompareRow label="Looks" a={muleA.ratingLooks || getAvg(muleA)} b={muleB.ratingLooks || getAvg(muleB)} />
+            <CompareRow label="Overall" a={fmtAvg(getAvg(muleA))} b={fmtAvg(getAvg(muleB))} />
+            {muleA.price && muleB.price && <CompareRow label="Price SEK" a={muleA.price} b={muleB.price} higher="lower" />}
+            {getValueScore(muleA) && getValueScore(muleB) && <CompareRow label="Value" a={fmtValue(getValueScore(muleA))} b={fmtValue(getValueScore(muleB))} />}
+            <button onClick={() => { setStep("A"); setMuleA(null); setMuleB(null); }} style={{ width: "100%", marginTop: 16, background: "#2a1f0e", border: "1px solid #3a2e1a", color: "#C8923A", borderRadius: 10, padding: 12, cursor: "pointer" }}>Compare again ⚔️</button>
+          </div>
+        )}
+        <button onClick={onClose} style={{ width: "100%", marginTop: 12, background: "transparent", border: "1px solid #3a2e1a", color: "#5a4a32", borderRadius: 10, padding: 10, cursor: "pointer" }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+function Leaderboard({ mules }) {
+  const markusMules = mules.filter(m => m.tastedBy?.includes("Markus"));
+  const andersMules = mules.filter(m => m.tastedBy?.includes("Anders"));
+  const markusAvg = markusMules.length ? markusMules.reduce((s,m) => s + getAvg(m), 0) / markusMules.length : 0;
+  const andersAvg = andersMules.length ? andersMules.reduce((s,m) => s + getAvg(m), 0) / andersMules.length : 0;
+  const markusBest = markusMules.sort((a,b) => getAvg(b) - getAvg(a))[0];
+  const andersBest = andersMules.sort((a,b) => getAvg(b) - getAvg(a))[0];
+  const markusValue = markusMules.filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
+  const andersValue = andersMules.filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
+  const topMules = [...mules].sort((a,b) => getAvg(b) - getAvg(a)).slice(0, 5);
+  const cities = [...new Set(mules.map(m => (m.city||'').toLowerCase()).filter(Boolean))];
+  const topCity = cities.sort((a,b) => mules.filter(m => (m.city||'').toLowerCase()===b).length - mules.filter(m => (m.city||'').toLowerCase()===a).length)[0];
+
+  const statBox = (label, markusVal, andersVal, higher = "higher") => {
+    const mWins = higher === "higher" ? markusVal > andersVal : markusVal < andersVal;
+    const aWins = higher === "higher" ? andersVal > markusVal : andersVal < markusVal;
+    return (
+      <div style={{ background: "#0f0b06", borderRadius: 12, padding: 16, border: "1px solid #2a1f0e" }}>
+        <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, textAlign: "center" }}>{label}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ textAlign: "center", flex: 1 }}>
+            <div style={{ fontSize: 28 }}>🧔</div>
+            <div style={{ color: mWins ? "#C8923A" : "#e8d5b0", fontSize: 20, fontWeight: 700, fontFamily: "'Playfair Display', serif" }}>{markusVal}{mWins ? " 👑" : ""}</div>
+          </div>
+          <div style={{ color: "#3a2e1a", fontSize: 20 }}>vs</div>
+          <div style={{ textAlign: "center", flex: 1 }}>
+            <div style={{ fontSize: 28 }}>👨</div>
+            <div style={{ color: aWins ? "#C8923A" : "#e8d5b0", fontSize: 20, fontWeight: 700, fontFamily: "'Playfair Display', serif" }}>{andersVal}{aWins ? " 👑" : ""}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: "0 24px 60px", maxWidth: 800, margin: "0 auto" }}>
+      <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#C8923A", marginBottom: 20 }}>🏆 Leaderboard</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
+        {statBox("Mules Tried", markusMules.length, andersMules.length)}
+        {statBox("Avg Rating", fmtAvg(markusAvg), fmtAvg(andersAvg))}
+      </div>
+      <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 20, marginBottom: 20 }}>
+        <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>🥇 Top 5 Mules Ever</div>
+        {topMules.map((m, i) => (
+          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < 4 ? "1px solid #2a1f0e" : "none" }}>
+            <div style={{ color: i === 0 ? "#C8923A" : i === 1 ? "#8a8a8a" : i === 2 ? "#a06820" : "#5a4a32", fontSize: 18, fontWeight: 700, width: 24 }}>{i+1}</div>
+            {m.images && m.images[0] && <img src={m.images[0]} style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover" }} />}
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "#e8d5b0", fontSize: 15, fontWeight: 700 }}>{m.name}</div>
+              <div style={{ color: "#5a4a32", fontSize: 12 }}>{getFlag(m)} {m.city || m.location}</div>
+            </div>
+            <div style={{ color: "#C8923A", fontWeight: 700 }}>⭐ {fmtAvg(getAvg(m))}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 16 }}>
+          <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🧔 Markus Best Find</div>
+          {markusBest && <><div style={{ color: "#e8d5b0", fontWeight: 700 }}>{markusBest.name}</div><div style={{ color: "#C8923A" }}>⭐ {fmtAvg(getAvg(markusBest))}</div></>}
+        </div>
+        <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 16 }}>
+          <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>👨 Anders Best Find</div>
+          {andersBest && <><div style={{ color: "#e8d5b0", fontWeight: 700 }}>{andersBest.name}</div><div style={{ color: "#C8923A" }}>⭐ {fmtAvg(getAvg(andersBest))}</div></>}
+        </div>
+        <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 16 }}>
+          <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>💚 Best Value Find</div>
+          {markusValue && <><div style={{ color: "#e8d5b0", fontWeight: 700 }}>{markusValue.name}</div><div style={{ color: "#6aaa6a" }}>{fmtValue(getValueScore(markusValue))}</div></>}
+        </div>
+        <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 16 }}>
+          <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🏙️ Most Visited City</div>
+          {topCity && <><div style={{ color: "#e8d5b0", fontWeight: 700, textTransform: "capitalize" }}>{topCity}</div><div style={{ color: "#5a4a32", fontSize: 12 }}>{mules.filter(m => (m.city||'').toLowerCase()===topCity).length} mules</div></>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -666,8 +837,10 @@ export default function App() {
   const [sortBy, setSortBy] = useState("newest");
   const [filterTag, setFilterTag] = useState("");
   const [filterWho, setFilterWho] = useState("");
-  const [tab, setTab] = useState("list"); // "list" | "map"
+  const [tab, setTab] = useState("list");
   const [filterCity, setFilterCity] = useState("");
+  const [showH2H, setShowH2H] = useState(false);
+  const [mapCountry, setMapCountry] = useState("");
 
   const load = async () => {
     try { setError(null); const rows = await dbGetAll(); setMules(rows.map(rowToMule)); }
@@ -712,6 +885,9 @@ export default function App() {
   const avgRating = mules.length ? fmtAvg(mules.reduce((s, m) => s + getAvg(m), 0) / mules.length) : "—";
   const cities = new Set(mules.map(m => (m.city || '').trim().toLowerCase()).filter(m => m));
   const bestValue = mules.filter(m => m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
+  const now = new Date();
+  const monthMules = mules.filter(m => { if (!m.createdAt) return false; const d = new Date(m.createdAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
+  const muleOfMonth = monthMules.length > 0 ? monthMules.sort((a,b) => getAvg(b) - getAvg(a))[0] : null;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0a0703", fontFamily: "'Georgia', serif", color: "#e8d5b0" }}>
@@ -747,14 +923,16 @@ export default function App() {
 
       {/* Tabs */}
       <div style={{ display: "flex", borderBottom: "1px solid #2a1f0e", background: "#0f0b06" }}>
-        {[{ key: "list", label: "🍺 Mules" }, { key: "map", label: "🗺️ Map" }].map(t => (
+        {[{ key: "list", label: "🍺 Mules" }, { key: "map", label: "🗺️ Map" }, { key: "leaderboard", label: "🏆 Stats" }].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, padding: "14px", background: "transparent", border: "none", borderBottom: tab === t.key ? "2px solid #C8923A" : "2px solid transparent", color: tab === t.key ? "#C8923A" : "#5a4a32", cursor: "pointer", fontSize: 14, fontFamily: "'Playfair Display', serif", fontWeight: tab === t.key ? 700 : 400 }}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {tab === "map" ? (
+      {tab === "leaderboard" ? (
+        <Leaderboard mules={mules} />
+      ) : tab === "map" ? (
         <MapView mules={mules} onSelectMule={m => { setSelected(m); setTab("list"); }} />
       ) : (
         <>
@@ -781,12 +959,24 @@ export default function App() {
               <option value="">All Cities</option>
               {[...new Set(mules.map(m => m.city).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <button onClick={() => setShowAdd(true)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", fontFamily: "'Playfair Display', serif" }}>+ Log a Mule</button>
+                    <button onClick={() => setShowH2H(true)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", color: "#C8923A", borderRadius: 10, padding: "10px 16px", cursor: "pointer", fontSize: 14, whiteSpace: "nowrap" }}>⚔️ Compare</button>
+    <button onClick={() => setShowAdd(true)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", fontFamily: "'Playfair Display', serif" }}>+ Log a Mule</button>
           </div>
 
           {/* Grid */}
           <div style={{ padding: "0 24px 60px", maxWidth: 1100, margin: "0 auto" }}>
-            {loading ? <div style={{ textAlign: "center", color: "#5a4a32", padding: 60, fontSize: 18 }}>Loading your mules...</div>
+            {muleOfMonth && (
+            <div style={{ marginBottom: 20, background: "linear-gradient(135deg, #2a1a06, #1a1208)", border: "2px solid #C8923A", borderRadius: 16, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ fontSize: 32 }}>⭐</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#C8923A", fontSize: 11, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Mule of the Month</div>
+                <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, color: "#e8d5b0", fontWeight: 700 }}>{muleOfMonth.name}</div>
+                <div style={{ color: "#7a6a52", fontSize: 13 }}>{getFlag(muleOfMonth)} {muleOfMonth.city || muleOfMonth.location} · ⭐ {fmtAvg(getAvg(muleOfMonth))}/5</div>
+              </div>
+              {muleOfMonth.images && muleOfMonth.images[0] && <img src={muleOfMonth.images[0]} style={{ width: 64, height: 64, borderRadius: 10, objectFit: "cover", border: "1px solid #C8923A" }} />}
+            </div>
+          )}
+          {loading ? <div style={{ textAlign: "center", color: "#5a4a32", padding: 60, fontSize: 18 }}>Loading your mules...</div>
               : error ? <div style={{ textAlign: "center", padding: 60 }}><div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div><div style={{ color: "#c87a7a" }}>{error}</div></div>
               : filtered.length === 0 ? (
                 <div style={{ textAlign: "center", padding: 80 }}>
@@ -802,6 +992,7 @@ export default function App() {
         </>
       )}
 
+      {showH2H && <HeadToHead mules={mules} onClose={() => setShowH2H(false)} />}
       {showAdd && <AddMuleForm onSave={addMule} onClose={() => setShowAdd(false)} currentUser={currentUser} knownCities={[...new Set(mules.map(m => m.city).filter(Boolean))]} />}
       {editingMule && <AddMuleForm editMode={true} initialData={editingMule} onSave={updateMule} onClose={() => setEditingMule(null)} currentUser={currentUser} knownCities={[...new Set(mules.map(m => m.city).filter(Boolean))]} />}
       {selected && <Modal mule={selected} onClose={() => setSelected(null)} onDelete={deleteMule} onEdit={m => { setEditingMule(m); setSelected(null); }} />}
