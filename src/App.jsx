@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 const SUPABASE_URL = "https://aqxfhfivulakvyfhfuxd.supabase.co";
-const SUPABASE_KEY = "sb_publishable_ey7OxNNuNZGZ9X05HhyHrQ_lt-c1aZD";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFxeGZoZml2dWxha3Z5ZmhmdXhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1NzkzNjIsImV4cCI6MjA4ODE1NTM2Mn0.1j3E5o_nyb61sRSNvdhofRPpeWaKvrnCDhXe7yuxqK0";
 const USERS = { Markus: "1337", Anders: "1337" };
 const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" };
 
