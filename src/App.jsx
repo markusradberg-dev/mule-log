@@ -2,9 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 const SUPABASE_URL = "https://aqxfhfivulakvyfhfuxd.supabase.co";
 const SUPABASE_KEY = "sb_publishable_ey7OxNNuNZGZ9X05HhyHrQ_lt-c1aZD";
-
 const USERS = { Markus: "1337", Anders: "1337" };
-
 const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" };
 
 async function dbGetAll() {
@@ -21,7 +19,7 @@ async function dbInsert(mule) {
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
       added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
       price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
-
+      tasted_by: mule.tastedBy,
     })
   });
   if (!res.ok) throw new Error(await res.text());
@@ -36,10 +34,10 @@ function rowToMule(row) {
   return {
     id: row.id, name: row.name, location: row.location, date: row.date,
     rating: row.rating, ratingTaste: row.rating_taste, ratingLooks: row.rating_looks,
-    addedBy: row.added_by, tastedBy: row.tasted_by || [],
+    addedBy: row.added_by,
+    tastedBy: Array.isArray(row.tasted_by) ? row.tasted_by : row.tasted_by ? [row.tasted_by] : [],
     notes: row.notes, tags: row.tags || [], price: row.price,
     image: row.image, createdAt: row.created_at,
-
   };
 }
 
@@ -48,6 +46,146 @@ function getAvg(mule) {
   return mule.rating || 0;
 }
 function fmtAvg(v) { return v % 1 === 0 ? String(v) : v.toFixed(1); }
+
+// Value score: rating quality per SEK spent. 100 SEK baseline.
+function getValueScore(mule) {
+  const avg = getAvg(mule);
+  if (!mule.price || mule.price <= 0) return null;
+  return (avg / 5) * (100 / mule.price) * 5;
+}
+function fmtValue(v) { return v == null ? "—" : v.toFixed(2); }
+
+function getTastedLabel(tastedBy) {
+  const tb = Array.isArray(tastedBy) ? tastedBy : tastedBy ? [tastedBy] : [];
+  const both = tb.length >= 2 || tb.includes("both");
+  if (both) return { badge: "🧔👨", full: "🧔 Markus & 👨 Anders" };
+  if (tb.includes("Markus")) return { badge: "🧔", full: "🧔 Markus" };
+  if (tb.includes("Anders")) return { badge: "👨", full: "👨 Anders" };
+  return { badge: "?", full: "Unknown" };
+}
+
+// ── Logo SVG ──────────────────────────────────────────────────────────────────
+function MuleLogo({ size = 60 }) {
+  const s = size / 200;
+  return (
+    <svg width={size} height={size * 1.2} viewBox="0 0 200 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M55 60 L55 160 Q55 175 70 175 L130 175 Q145 175 145 160 L145 60 Z" fill="none" stroke="#C8923A" strokeWidth="2.5"/>
+      <path d="M48 175 L152 175" stroke="#C8923A" strokeWidth="2.5" strokeLinecap="round"/>
+      <path d="M48 60 L152 60" stroke="#C8923A" strokeWidth="2.5" strokeLinecap="round"/>
+      <path d="M145 80 Q185 75 188 100 Q190 125 175 135 Q162 142 145 138" stroke="#C8923A" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+      <path d="M145 138 Q155 150 148 162" stroke="#C8923A" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+      <path d="M148 162 Q155 168 162 162" stroke="#C8923A" strokeWidth="2" fill="none" strokeLinecap="round"/>
+      <g transform="translate(72, 85)">
+        <path d="M0 40 Q5 15 25 10 Q45 5 55 20 Q65 35 55 50 Q45 60 25 58 Q5 56 0 40 Z" fill="#C8923A" fillOpacity="0.15" stroke="#C8923A" strokeWidth="1.5"/>
+        <path d="M40 10 L38 -5 L48 8 Z" fill="none" stroke="#C8923A" strokeWidth="1.5"/>
+        <circle cx="42" cy="28" r="3" fill="none" stroke="#C8923A" strokeWidth="1.5"/>
+        <path d="M52 38 Q55 36 57 38" stroke="#C8923A" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+      </g>
+      <circle cx="85" cy="100" r="3" fill="#C8923A" fillOpacity="0.4"/>
+      <circle cx="100" cy="115" r="2" fill="#C8923A" fillOpacity="0.3"/>
+      <circle cx="115" cy="95" r="2.5" fill="#C8923A" fillOpacity="0.35"/>
+      <circle cx="95" cy="130" r="2" fill="#C8923A" fillOpacity="0.25"/>
+    </svg>
+  );
+}
+
+// ── Star Rating ───────────────────────────────────────────────────────────────
+function StarRating({ value, onChange, size = 24 }) {
+  const [hover, setHover] = useState(0);
+  const display = hover || value;
+  return (
+    <div style={{ display: "flex", gap: 2 }}>
+      {[1,2,3,4,5].map(s => {
+        const full = display >= s, half = !full && display >= s - 0.5;
+        return (
+          <span key={s} onClick={() => onChange && onChange(s)} onMouseEnter={() => onChange && setHover(s)} onMouseLeave={() => onChange && setHover(0)}
+            style={{ position: "relative", fontSize: size, cursor: onChange ? "pointer" : "default", lineHeight: 1, display: "inline-block" }}>
+            <span style={{ color: "#3a2e22" }}>&#9733;</span>
+            {(full || half) && <span style={{ position: "absolute", left: 0, top: 0, overflow: "hidden", width: full ? "100%" : "50%", color: "#C8923A" }}>&#9733;</span>}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Tasted By Picker ──────────────────────────────────────────────────────────
+function TastedByPicker({ value, onChange }) {
+  const options = [{ key: "both", label: "Both", icon: "🧔👨" }, { key: "Markus", label: "Markus", icon: "🧔" }, { key: "Anders", label: "Anders", icon: "👨" }];
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {options.map(o => (
+        <button key={o.key} onClick={() => onChange(o.key)}
+          style={{ flex: 1, background: value === o.key ? "#2a1a06" : "#0f0b06", border: `2px solid ${value === o.key ? "#C8923A" : "#3a2e1a"}`, borderRadius: 12, padding: "10px 6px", cursor: "pointer", textAlign: "center" }}>
+          <div style={{ fontSize: 20 }}>{o.icon}</div>
+          <div style={{ color: value === o.key ? "#C8923A" : "#5a4a32", fontSize: 11, marginTop: 4, fontWeight: value === o.key ? 700 : 400 }}>{o.label}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Map View ──────────────────────────────────────────────────────────────────
+function MapView({ mules, onSelectMule }) {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+
+  useEffect(() => {
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css"; link.rel = "stylesheet";
+      link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+      document.head.appendChild(link);
+    }
+    const init = () => {
+      if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
+      const L = window.L;
+      const map = L.map(mapRef.current).setView([48, 15], 3);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
+      mules.forEach(async mule => {
+        if (!mule.location) return;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(mule.location)}&format=json&limit=1`);
+          const data = await res.json();
+          if (!data[0]) return;
+          const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+          const avg = getAvg(mule);
+          const color = avg >= 4 ? "#C8923A" : avg >= 3 ? "#8a8a20" : "#c85050";
+          const icon = L.divIcon({
+            html: `<div style="background:${color};width:34px;height:34px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer">🍺</div>`,
+            className: "", iconSize: [34, 34], iconAnchor: [17, 17]
+          });
+          const marker = L.marker([lat, lng], { icon }).addTo(map);
+          marker.bindPopup(`<div style="font-family:Georgia,serif;min-width:160px;padding:4px"><b style="font-size:14px">${mule.name}</b><br><span style="color:#888;font-size:12px">📍 ${mule.location}</span><br><span style="color:#C8923A;font-weight:bold">⭐ ${fmtAvg(avg)}/5</span>${mule.price ? `<br><span style="color:#666;font-size:12px">💰 ${mule.price} SEK</span>` : ""}</div>`);
+          marker.on("click", () => onSelectMule(mule));
+        } catch {}
+      });
+      mapInstanceRef.current = map;
+    };
+    if (window.L) { init(); }
+    else {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+      s.onload = init; document.head.appendChild(s);
+    }
+    return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
+  }, [mules]);
+
+  return (
+    <div style={{ padding: "0 24px 60px", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid #2a1f0e", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 16, color: "#C8923A" }}>🗺️ Mule Map</div>
+          <div style={{ color: "#5a4a32", fontSize: 12 }}>{mules.length} mules — tap a pin to see details</div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 12, fontSize: 11, color: "#5a4a32" }}>
+            <span>🟠 Great (4+)</span><span>🟡 OK (3+)</span><span>🔴 Weak</span>
+          </div>
+        </div>
+        <div ref={mapRef} style={{ height: "calc(100vh - 320px)", minHeight: 400 }} />
+      </div>
+    </div>
+  );
+}
 
 // ── Map Picker ────────────────────────────────────────────────────────────────
 function MapPicker({ onSelect, onClose }) {
@@ -60,53 +198,35 @@ function MapPicker({ onSelect, onClose }) {
   const markerRef = useRef(null);
 
   useEffect(() => {
-    // Load Leaflet CSS
-    if (!document.getElementById("leaflet-css")) {
-      const link = document.createElement("link");
-      link.id = "leaflet-css";
-      link.rel = "stylesheet";
-      link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
-      document.head.appendChild(link);
-    }
-    // Load Leaflet JS
     const loadMap = () => {
       if (mapInstanceRef.current) return;
       const L = window.L;
       const map = L.map(mapRef.current).setView([48, 15], 4);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap"
-      }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
       map.on("click", async (e) => {
         const { lat, lng } = e.latlng;
         if (markerRef.current) markerRef.current.remove();
         markerRef.current = L.marker([lat, lng]).addTo(map);
-        // Reverse geocode
         const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
         const data = await res.json();
         const loc = data.display_name?.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-        setPin({ lat, lng, location: loc });
+        setPin({ location: loc });
       });
       mapInstanceRef.current = map;
     };
-
-    if (window.L) {
-      loadMap();
-    } else {
-      const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
-      script.onload = loadMap;
-      document.head.appendChild(script);
+    if (window.L) { loadMap(); }
+    else {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+      s.onload = loadMap; document.head.appendChild(s);
     }
     return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
   }, []);
 
   const search = async () => {
-    if (!query.trim()) return;
-    setSearching(true);
+    if (!query.trim()) return; setSearching(true);
     const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`);
-    const data = await res.json();
-    setResults(data);
-    setSearching(false);
+    setResults(await res.json()); setSearching(false);
   };
 
   const selectResult = (r) => {
@@ -114,11 +234,9 @@ function MapPicker({ onSelect, onClose }) {
     const L = window.L;
     if (markerRef.current) markerRef.current.remove();
     markerRef.current = L.marker([lat, lng]).addTo(mapInstanceRef.current);
-    mapInstanceRef.current.setView([lat, lng], 15);
+    mapInstanceRef.current.setView([lat, lng], 14);
     const loc = r.display_name.split(",").slice(0, 3).join(", ");
-    setPin({ lat, lng, location: loc });
-    setResults([]);
-    setQuery(loc);
+    setPin({ location: loc }); setResults([]); setQuery(loc);
   };
 
   return (
@@ -129,16 +247,13 @@ function MapPicker({ onSelect, onClose }) {
           <div style={{ display: "flex", gap: 8 }}>
             <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && search()}
               placeholder="Search for a bar or city..." style={{ flex: 1, background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 14px", color: "#e8d5b0", fontSize: 14, outline: "none" }} />
-            <button onClick={search} style={{ background: "#C8923A", border: "none", borderRadius: 10, padding: "10px 16px", color: "#0f0b06", fontWeight: 700, cursor: "pointer" }}>
-              {searching ? "..." : "Search"}
-            </button>
+            <button onClick={search} style={{ background: "#C8923A", border: "none", borderRadius: 10, padding: "10px 16px", color: "#0f0b06", fontWeight: 700, cursor: "pointer" }}>{searching ? "..." : "Search"}</button>
           </div>
           {results.length > 0 && (
             <div style={{ marginTop: 8, background: "#0f0b06", borderRadius: 10, border: "1px solid #2a1f0e", overflow: "hidden" }}>
               {results.map((r, i) => (
-                <div key={i} onClick={() => selectResult(r)} style={{ padding: "10px 14px", color: "#e8d5b0", fontSize: 13, cursor: "pointer", borderBottom: i < results.length - 1 ? "1px solid #2a1f0e" : "none" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#1a1208"}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <div key={i} onClick={() => selectResult(r)} style={{ padding: "10px 14px", color: "#e8d5b0", fontSize: 13, cursor: "pointer", borderBottom: i < results.length-1 ? "1px solid #2a1f0e" : "none" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#1a1208"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   📍 {r.display_name.split(",").slice(0, 3).join(", ")}
                 </div>
               ))}
@@ -146,20 +261,17 @@ function MapPicker({ onSelect, onClose }) {
           )}
         </div>
         <div ref={mapRef} style={{ flex: 1, minHeight: 300 }} />
-        {pin && (
+        {pin ? (
           <div style={{ padding: 12, borderTop: "1px solid #2a1f0e", background: "#0f0b06" }}>
             <div style={{ color: "#C8923A", fontSize: 13, marginBottom: 10 }}>📍 {pin.location}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={onClose} style={{ flex: 1, background: "transparent", border: "1px solid #3a2e1a", color: "#7a6a52", borderRadius: 10, padding: 10, cursor: "pointer" }}>Cancel</button>
-              <button onClick={() => onSelect(pin)} style={{ flex: 2, background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: 10, fontWeight: 700, cursor: "pointer" }}>
-                Use this location
-              </button>
+              <button onClick={() => onSelect(pin)} style={{ flex: 2, background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: 10, fontWeight: 700, cursor: "pointer" }}>Use this location</button>
             </div>
           </div>
-        )}
-        {!pin && (
+        ) : (
           <div style={{ padding: 12, borderTop: "1px solid #2a1f0e", textAlign: "center" }}>
-            <div style={{ color: "#5a4a32", fontSize: 13 }}>Search for a place or tap the map to drop a pin</div>
+            <div style={{ color: "#5a4a32", fontSize: 13 }}>Search or tap the map to drop a pin</div>
             <button onClick={onClose} style={{ marginTop: 8, background: "transparent", border: "1px solid #3a2e1a", color: "#7a6a52", borderRadius: 10, padding: "8px 20px", cursor: "pointer" }}>Cancel</button>
           </div>
         )}
@@ -168,34 +280,28 @@ function MapPicker({ onSelect, onClose }) {
   );
 }
 
-// ── Login Screen ──────────────────────────────────────────────────────────────
+// ── Login ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [selected, setSelected] = useState(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [shake, setShake] = useState(false);
-
   const handlePin = (digit) => {
     if (pin.length >= 4) return;
-    const next = pin + digit;
-    setPin(next);
+    const next = pin + digit; setPin(next);
     if (next.length === 4) {
       setTimeout(() => {
         if (USERS[selected] === next) { onLogin(selected); }
-        else {
-          setShake(true); setError("Wrong PIN");
-          setTimeout(() => { setPin(""); setShake(false); setError(""); }, 800);
-        }
+        else { setShake(true); setError("Wrong PIN"); setTimeout(() => { setPin(""); setShake(false); setError(""); }, 800); }
       }, 150);
     }
   };
-
   return (
     <div style={{ minHeight: "100vh", background: "#0a0703", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet" />
-      <div style={{ fontSize: 56, marginBottom: 12 }}>🍺</div>
-      <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 36, fontWeight: 900, color: "#C8923A", margin: 0, marginBottom: 6 }}>The Mule Log</h1>
-      <p style={{ color: "#5a4a32", fontSize: 12, letterSpacing: 2, textTransform: "uppercase", marginBottom: 40 }}>Who's drinking tonight?</p>
+      <MuleLogo size={80} />
+      <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, fontWeight: 900, color: "#C8923A", margin: "12px 0 4px" }}>The Mule Hunt</h1>
+      <p style={{ color: "#5a4a32", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: 40 }}>Who's drinking tonight?</p>
       {!selected ? (
         <div style={{ display: "flex", gap: 16 }}>
           {["Markus", "Anders"].map(name => (
@@ -212,7 +318,7 @@ function LoginScreen({ onLogin }) {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button onClick={() => { setSelected(null); setPin(""); }} style={{ background: "none", border: "none", color: "#5a4a32", cursor: "pointer", fontSize: 20 }}>←</button>
-            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#e8d5b0" }}>Hey {selected}! Enter your PIN</div>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, color: "#e8d5b0" }}>Hey {selected}! Enter your PIN</div>
           </div>
           <div style={{ display: "flex", gap: 16, animation: shake ? "shake 0.4s ease" : "none" }}>
             <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
@@ -236,44 +342,11 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function StarRating({ value, onChange, size = 24 }) {
-  const [hover, setHover] = useState(0);
-  const display = hover || value;
-  return (
-    <div style={{ display: "flex", gap: 2 }}>
-      {[1,2,3,4,5].map(s => {
-        const full = display >= s, half = !full && display >= s - 0.5;
-        return (
-          <span key={s} onClick={() => onChange && onChange(s)} onMouseEnter={() => onChange && setHover(s)} onMouseLeave={() => onChange && setHover(0)}
-            style={{ position: "relative", fontSize: size, cursor: onChange ? "pointer" : "default", lineHeight: 1, display: "inline-block" }}>
-            <span style={{ color: "#3a2e22" }}>&#9733;</span>
-            {(full || half) && <span style={{ position: "absolute", left: 0, top: 0, overflow: "hidden", width: full ? "100%" : "50%", color: "#C8923A" }}>&#9733;</span>}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
-function TastedByPicker({ value, onChange }) {
-  const options = [{ key: "both", label: "Both", icon: "🧔👨" }, { key: "Markus", label: "Markus", icon: "🧔" }, { key: "Anders", label: "Anders", icon: "👨" }];
-  return (
-    <div style={{ display: "flex", gap: 8 }}>
-      {options.map(o => (
-        <button key={o.key} onClick={() => onChange(o.key)}
-          style={{ flex: 1, background: value === o.key ? "#2a1a06" : "#0f0b06", border: `2px solid ${value === o.key ? "#C8923A" : "#3a2e1a"}`, borderRadius: 12, padding: "10px 6px", cursor: "pointer", textAlign: "center" }}>
-          <div style={{ fontSize: 20 }}>{o.icon}</div>
-          <div style={{ color: value === o.key ? "#C8923A" : "#5a4a32", fontSize: 11, marginTop: 4, fontWeight: value === o.key ? 700 : 400 }}>{o.label}</div>
-        </button>
-      ))}
-    </div>
-  );
-}
-
+// ── Mule Card ─────────────────────────────────────────────────────────────────
 function MuleCard({ mule, onClick }) {
   const avg = getAvg(mule);
-  const tastedBy = Array.isArray(mule.tastedBy) ? mule.tastedBy : mule.tastedBy ? [mule.tastedBy] : [];
-  const bothTasted = tastedBy.length === 2 || tastedBy.includes("both");
+  const tasted = getTastedLabel(mule.tastedBy);
+  const valueScore = getValueScore(mule);
   return (
     <div onClick={() => onClick(mule)}
       style={{ background: "linear-gradient(135deg, #1a1208 0%, #231a0d 100%)", border: "1px solid #3a2e1a", borderRadius: 16, overflow: "hidden", cursor: "pointer", transition: "transform 0.2s, box-shadow 0.2s", boxShadow: "0 4px 20px rgba(0,0,0,0.4)" }}
@@ -282,8 +355,8 @@ function MuleCard({ mule, onClick }) {
       <div style={{ position: "relative", height: 180, background: "#0f0b06", overflow: "hidden" }}>
         {mule.image ? <img src={mule.image} alt={mule.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 64 }}>🍺</div>}
-        <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", borderRadius: 20, padding: "4px 10px", fontSize: 13, border: "1px solid #3a2e1a" }}>
-          {bothTasted ? "🧔👨" : tastedBy.includes("Markus") ? "🧔" : "👨"}
+        <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", borderRadius: 20, padding: "4px 10px", fontSize: 14, border: "1px solid #3a2e1a" }}>
+          {tasted.badge}
         </div>
         <div style={{ position: "absolute", top: 10, right: 10, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", borderRadius: 20, padding: "4px 10px", color: "#5a4a32", fontSize: 11, border: "1px solid #3a2e1a" }}>
           {mule.addedBy}
@@ -291,16 +364,20 @@ function MuleCard({ mule, onClick }) {
       </div>
       <div style={{ padding: 16 }}>
         <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, color: "#e8d5b0", fontWeight: 700, marginBottom: 4 }}>{mule.name}</div>
-        <div style={{ color: "#7a6a52", fontSize: 13, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-          📍 {mule.location || "Unknown"}
-          {mule.lat && <a href={`https://www.google.com/maps?q=${mule.lat},${mule.lng}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: "#C8923A", fontSize: 11, marginLeft: 4 }}>View map →</a>}
-        </div>
+        <div style={{ color: "#7a6a52", fontSize: 13, marginBottom: 10 }}>📍 {mule.location || "Unknown"}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <StarRating value={avg} size={18} />
             <span style={{ color: "#C8923A", fontSize: 13, fontWeight: 700 }}>{fmtAvg(avg)}</span>
           </div>
-          <div style={{ color: "#5a7a5a", fontSize: 12, fontStyle: "italic" }}>{mule.price ? `${mule.price} SEK` : ""}</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {mule.price && <div style={{ color: "#5a7a5a", fontSize: 12, fontStyle: "italic" }}>{mule.price} SEK</div>}
+            {valueScore != null && (
+              <div style={{ background: "#0f2010", border: "1px solid #1a4020", borderRadius: 8, padding: "2px 7px", fontSize: 11, color: "#6aaa6a" }}>
+                💚 {fmtValue(valueScore)}
+              </div>
+            )}
+          </div>
         </div>
         {mule.tags && mule.tags.length > 0 && (
           <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -312,11 +389,12 @@ function MuleCard({ mule, onClick }) {
   );
 }
 
+// ── Modal ─────────────────────────────────────────────────────────────────────
 function Modal({ mule, onClose, onDelete }) {
   if (!mule) return null;
   const avg = getAvg(mule);
-  const tastedBy = Array.isArray(mule.tastedBy) ? mule.tastedBy : mule.tastedBy ? [mule.tastedBy] : [];
-  const bothTasted = tastedBy.length === 2 || tastedBy.includes("both");
+  const tasted = getTastedLabel(mule.tastedBy);
+  const valueScore = getValueScore(mule);
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, backdropFilter: "blur(4px)" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(135deg, #1a1208 0%, #231a0d 100%)", border: "1px solid #3a2e1a", borderRadius: 20, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 80px rgba(0,0,0,0.8)" }}>
@@ -326,12 +404,13 @@ function Modal({ mule, onClose, onDelete }) {
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
             <StarRating value={avg} size={22} />
             <span style={{ color: "#C8923A", fontWeight: 700, fontSize: 18 }}>{fmtAvg(avg)}/5</span>
+            {valueScore != null && <span style={{ background: "#0f2010", border: "1px solid #1a4020", borderRadius: 10, padding: "4px 10px", color: "#6aaa6a", fontSize: 13 }}>💚 Value: {fmtValue(valueScore)}</span>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
             {[
-              { label: "Location", value: mule.location || "—" },
+              { label: "Location", value: "📍 " + (mule.location || "—") },
               { label: "Date", value: mule.date ? new Date(mule.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—" },
-              { label: "Tasted by", value: bothTasted ? "🧔 Markus & 👨 Anders" : tastedBy.includes("Markus") ? "🧔 Markus" : "👨 Anders" },
+              { label: "Tasted by", value: tasted.full },
               { label: "Logged by", value: mule.addedBy || "—" },
               mule.price && { label: "Price", value: `💰 ${mule.price} SEK` },
               (mule.ratingTaste != null && mule.ratingLooks != null) && { label: "Taste / Looks", value: `👅 ${mule.ratingTaste}/5  👁️ ${mule.ratingLooks}/5` },
@@ -342,12 +421,6 @@ function Modal({ mule, onClose, onDelete }) {
               </div>
             ))}
           </div>
-          {mule.lat && (
-            <a href={`https://www.google.com/maps?q=${mule.lat},${mule.lng}`} target="_blank" rel="noreferrer"
-              style={{ display: "block", background: "#0f0b06", border: "1px solid #2a1f0e", borderRadius: 10, padding: 12, color: "#C8923A", textDecoration: "none", textAlign: "center", fontSize: 14, marginBottom: 16 }}>
-              🗺️ Open in Google Maps
-            </a>
-          )}
           {mule.notes && (
             <div style={{ background: "#0f0b06", borderRadius: 10, padding: 16, marginBottom: 16, border: "1px solid #2a1f0e" }}>
               <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Notes</div>
@@ -369,8 +442,9 @@ function Modal({ mule, onClose, onDelete }) {
   );
 }
 
+// ── Add Form ──────────────────────────────────────────────────────────────────
 function AddMuleForm({ onSave, onClose, currentUser }) {
-  const [form, setForm] = useState({ name: "", location: "", ratingTaste: 3, ratingLooks: 3, date: new Date().toISOString().split("T")[0], notes: "", tags: [], image: null, price: "", tastedBy: "both", lat: null, lng: null });
+  const [form, setForm] = useState({ name: "", location: "", ratingTaste: 3, ratingLooks: 3, date: new Date().toISOString().split("T")[0], notes: "", tags: [], image: null, price: "", tastedBy: "both" });
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -397,6 +471,7 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
   };
 
   const addTag = tag => { if (!tag.trim() || form.tags.includes(tag.trim())) return; setForm(f => ({ ...f, tags: [...f.tags, tag.trim()] })); setTagInput(""); };
+
   const handleSubmit = async () => {
     if (!form.name || !form.location) return alert("Name and location are required!");
     setSaving(true);
@@ -407,28 +482,22 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
 
   return (
     <>
-      {showMap && <MapPicker onSelect={pin => { setForm(f => ({ ...f, location: pin.location, lat: pin.lat, lng: pin.lng })); setShowMap(false); }} onClose={() => setShowMap(false)} />}
+      {showMap && <MapPicker onSelect={pin => { setForm(f => ({ ...f, location: pin.location })); setShowMap(false); }} onClose={() => setShowMap(false)} />}
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, backdropFilter: "blur(4px)" }}>
         <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(135deg, #1a1208 0%, #231a0d 100%)", border: "1px solid #3a2e1a", borderRadius: 20, maxWidth: 500, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 80px rgba(0,0,0,0.8)", padding: 28 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: "#C8923A" }}>🍺 Log a New Mule</div>
-            <div style={{ color: "#5a4a32", fontSize: 13 }}>as <span style={{ color: "#C8923A", fontWeight: 700 }}>{currentUser}</span></div>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#C8923A" }}>🍺 Log a New Mule</div>
+            <div style={{ color: "#5a4a32", fontSize: 12 }}>as <span style={{ color: "#C8923A", fontWeight: 700 }}>{currentUser}</span></div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div><label style={labelStyle}>Bar / Drink Name *</label><input style={inputStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Copper Mule at The Alchemist" /></div>
-
-            {/* Location with map pin */}
             <div>
               <label style={labelStyle}>Location *</label>
               <div style={{ display: "flex", gap: 8 }}>
-                <input style={{ ...inputStyle, flex: 1 }} value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value, lat: null, lng: null }))} placeholder="e.g. New York, NY" />
-                <button onClick={() => setShowMap(true)} style={{ background: form.lat ? "#2a1a06" : "#0f0b06", border: `1px solid ${form.lat ? "#C8923A" : "#3a2e1a"}`, borderRadius: 10, padding: "0 14px", color: form.lat ? "#C8923A" : "#7a6a52", cursor: "pointer", fontSize: 18, whiteSpace: "nowrap" }}>
-                  {form.lat ? "📍✓" : "📍"}
-                </button>
+                <input style={{ ...inputStyle, flex: 1 }} value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="e.g. London, UK" />
+                <button onClick={() => setShowMap(true)} title="Drop a pin" style={{ background: form.location ? "#2a1a06" : "#0f0b06", border: `1px solid ${form.location ? "#C8923A" : "#3a2e1a"}`, borderRadius: 10, padding: "0 14px", color: form.location ? "#C8923A" : "#7a6a52", cursor: "pointer", fontSize: 18 }}>📍</button>
               </div>
-              {form.lat && <div style={{ color: "#5a4a32", fontSize: 11, marginTop: 4 }}>Pin set ✓ — coords saved</div>}
             </div>
-
             <div><label style={labelStyle}>Date</label><input style={inputStyle} type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
             <div><label style={labelStyle}>Who tasted it?</label><TastedByPicker value={form.tastedBy} onChange={v => setForm(f => ({ ...f, tastedBy: v }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -472,6 +541,7 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
   );
 }
 
+// ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [mules, setMules] = useState([]);
@@ -483,6 +553,7 @@ export default function App() {
   const [sortBy, setSortBy] = useState("newest");
   const [filterTag, setFilterTag] = useState("");
   const [filterWho, setFilterWho] = useState("");
+  const [tab, setTab] = useState("list"); // "list" | "map"
 
   const load = async () => {
     try { setError(null); const rows = await dbGetAll(); setMules(rows.map(rowToMule)); }
@@ -501,7 +572,7 @@ export default function App() {
   const filtered = mules
     .filter(m => { const q = search.toLowerCase(); return !q || m.name?.toLowerCase().includes(q) || m.location?.toLowerCase().includes(q); })
     .filter(m => !filterTag || m.tags?.includes(filterTag))
-    .filter(m => { if (!filterWho) return true; const tb = Array.isArray(m.tastedBy) ? m.tastedBy : [m.tastedBy]; return tb.includes(filterWho) || tb.includes("both"); })
+    .filter(m => { if (!filterWho) return true; return m.tastedBy?.includes(filterWho); })
     .sort((a, b) => {
       if (sortBy === "newest") return new Date(b.createdAt) - new Date(a.createdAt);
       if (sortBy === "oldest") return new Date(a.createdAt) - new Date(b.createdAt);
@@ -510,58 +581,98 @@ export default function App() {
       if (sortBy === "name") return a.name.localeCompare(b.name);
       if (sortBy === "price-low") return (a.price || 999) - (b.price || 999);
       if (sortBy === "price-high") return (b.price || 0) - (a.price || 0);
+      if (sortBy === "value") return (getValueScore(b) || 0) - (getValueScore(a) || 0);
       return 0;
     });
 
   const avgRating = mules.length ? fmtAvg(mules.reduce((s, m) => s + getAvg(m), 0) / mules.length) : "—";
   const cities = new Set(mules.map(m => m.location?.split(",")[0]?.trim()).filter(Boolean));
+  const bestValue = mules.filter(m => m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
 
   return (
     <div style={{ minHeight: "100vh", background: "#0a0703", fontFamily: "'Georgia', serif", color: "#e8d5b0" }}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet" />
-      <div style={{ background: "linear-gradient(180deg, #1a1006 0%, #0a0703 100%)", borderBottom: "1px solid #2a1f0e", padding: "32px 24px 24px", textAlign: "center", position: "relative" }}>
-        <button onClick={() => setCurrentUser(null)} style={{ position: "absolute", top: 16, right: 16, background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "6px 14px", color: "#5a4a32", cursor: "pointer", fontSize: 13 }}>
+
+      {/* Header */}
+      <div style={{ background: "linear-gradient(180deg, #1a1006 0%, #0a0703 100%)", borderBottom: "1px solid #2a1f0e", padding: "28px 24px 20px", textAlign: "center", position: "relative" }}>
+        <button onClick={() => setCurrentUser(null)} style={{ position: "absolute", top: 16, right: 16, background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "6px 14px", color: "#5a4a32", cursor: "pointer", fontSize: 12 }}>
           {currentUser === "Markus" ? "🧔" : "👨"} {currentUser} · Log out
         </button>
-        <div style={{ fontSize: 44, marginBottom: 6 }}>🫚🍋🍺</div>
-        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "clamp(24px, 5vw, 46px)", fontWeight: 900, color: "#C8923A", margin: 0, lineHeight: 1 }}>The Mule Log</h1>
-        <p style={{ color: "#5a4a32", marginTop: 6, fontSize: 12, letterSpacing: 2, textTransform: "uppercase" }}>Anders &amp; Markus — on a quest for the perfect Moscow Mule</p>
-        <div style={{ display: "flex", justifyContent: "center", gap: 32, marginTop: 20, flexWrap: "wrap" }}>
-          {[{ label: "Mules Tried", value: mules.length }, { label: "Avg Rating", value: avgRating }, { label: "Cities", value: cities.size || "—" }].map(s => (
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+          <MuleLogo size={56} />
+        </div>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "clamp(22px, 5vw, 42px)", fontWeight: 900, color: "#C8923A", margin: 0, lineHeight: 1 }}>The Mule Hunt</h1>
+        <p style={{ color: "#5a4a32", marginTop: 4, fontSize: 11, letterSpacing: 2, textTransform: "uppercase" }}>Anders &amp; Markus</p>
+
+        {/* Stats */}
+        <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 16, flexWrap: "wrap" }}>
+          {[
+            { label: "Mules Tried", value: mules.length },
+            { label: "Avg Rating", value: avgRating },
+            { label: "Cities", value: cities.size || "—" },
+            { label: "Best Value", value: bestValue ? bestValue.name.split(" ")[0] : "—" },
+          ].map(s => (
             <div key={s.label} style={{ textAlign: "center" }}>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700, color: "#C8923A" }}>{s.value}</div>
-              <div style={{ color: "#5a4a32", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: "#C8923A" }}>{s.value}</div>
+              <div style={{ color: "#5a4a32", fontSize: 9, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
             </div>
           ))}
         </div>
       </div>
-      <div style={{ padding: "16px 24px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", maxWidth: 1100, margin: "0 auto" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search..." style={{ flex: "1 1 180px", background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 16px", color: "#e8d5b0", fontSize: 14, outline: "none" }} />
-        <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}>
-          <option value="newest">Newest</option><option value="oldest">Oldest</option>
-          <option value="rating-high">Top Rated</option><option value="rating-low">Lowest Rated</option>
-          <option value="name">A-Z</option><option value="price-low">Cheapest</option><option value="price-high">Priciest</option>
-        </select>
-        <select value={filterWho} onChange={e => setFilterWho(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}>
-          <option value="">Everyone's mules</option><option value="Markus">🧔 Markus</option><option value="Anders">👨 Anders</option>
-        </select>
-        {allTags.length > 0 && <select value={filterTag} onChange={e => setFilterTag(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}><option value="">All Tags</option>{allTags.map(t => <option key={t} value={t}>{t}</option>)}</select>}
-        <button onClick={() => setShowAdd(true)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", fontFamily: "'Playfair Display', serif" }}>+ Log a Mule</button>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", borderBottom: "1px solid #2a1f0e", background: "#0f0b06" }}>
+        {[{ key: "list", label: "🍺 Mules" }, { key: "map", label: "🗺️ Map" }].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, padding: "14px", background: "transparent", border: "none", borderBottom: tab === t.key ? "2px solid #C8923A" : "2px solid transparent", color: tab === t.key ? "#C8923A" : "#5a4a32", cursor: "pointer", fontSize: 14, fontFamily: "'Playfair Display', serif", fontWeight: tab === t.key ? 700 : 400 }}>
+            {t.label}
+          </button>
+        ))}
       </div>
-      <div style={{ padding: "0 24px 60px", maxWidth: 1100, margin: "0 auto" }}>
-        {loading ? <div style={{ textAlign: "center", color: "#5a4a32", padding: 60, fontSize: 18 }}>Loading your mules...</div>
-          : error ? <div style={{ textAlign: "center", padding: 60 }}><div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div><div style={{ color: "#c87a7a" }}>{error}</div></div>
-          : filtered.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 80 }}>
-              <div style={{ fontSize: 64, marginBottom: 16 }}>🍺</div>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#5a4a32" }}>{mules.length === 0 ? "No mules logged yet — go drink some!" : "No mules match your filters"}</div>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 20 }}>
-              {filtered.map(mule => <MuleCard key={mule.id} mule={mule} onClick={setSelected} />)}
-            </div>
-          )}
-      </div>
+
+      {tab === "map" ? (
+        <MapView mules={mules} onSelectMule={m => { setSelected(m); setTab("list"); }} />
+      ) : (
+        <>
+          {/* Controls */}
+          <div style={{ padding: "14px 24px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", maxWidth: 1100, margin: "0 auto" }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search..." style={{ flex: "1 1 180px", background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 16px", color: "#e8d5b0", fontSize: 14, outline: "none" }} />
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}>
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="rating-high">Top Rated</option>
+              <option value="rating-low">Lowest Rated</option>
+              <option value="value">Best Value 💚</option>
+              <option value="name">A-Z</option>
+              <option value="price-low">Cheapest</option>
+              <option value="price-high">Priciest</option>
+            </select>
+            <select value={filterWho} onChange={e => setFilterWho(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}>
+              <option value="">Everyone</option>
+              <option value="Markus">🧔 Markus</option>
+              <option value="Anders">👨 Anders</option>
+            </select>
+            {allTags.length > 0 && <select value={filterTag} onChange={e => setFilterTag(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}><option value="">All Tags</option>{allTags.map(t => <option key={t} value={t}>{t}</option>)}</select>}
+            <button onClick={() => setShowAdd(true)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", fontFamily: "'Playfair Display', serif" }}>+ Log a Mule</button>
+          </div>
+
+          {/* Grid */}
+          <div style={{ padding: "0 24px 60px", maxWidth: 1100, margin: "0 auto" }}>
+            {loading ? <div style={{ textAlign: "center", color: "#5a4a32", padding: 60, fontSize: 18 }}>Loading your mules...</div>
+              : error ? <div style={{ textAlign: "center", padding: 60 }}><div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div><div style={{ color: "#c87a7a" }}>{error}</div></div>
+              : filtered.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 80 }}>
+                  <div style={{ fontSize: 64, marginBottom: 16 }}>🍺</div>
+                  <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#5a4a32" }}>{mules.length === 0 ? "No mules logged yet — go drink some!" : "No mules match your filters"}</div>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 20 }}>
+                  {filtered.map(mule => <MuleCard key={mule.id} mule={mule} onClick={setSelected} />)}
+                </div>
+              )}
+          </div>
+        </>
+      )}
+
       {showAdd && <AddMuleForm onSave={addMule} onClose={() => setShowAdd(false)} currentUser={currentUser} />}
       {selected && <Modal mule={selected} onClose={() => setSelected(null)} onDelete={deleteMule} />}
     </div>
