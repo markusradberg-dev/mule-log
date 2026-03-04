@@ -18,8 +18,8 @@ async function dbInsert(mule) {
       name: mule.name, location: mule.location, date: mule.date || null,
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
       added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
-      price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
-
+      price: mule.price ? parseInt(mule.price) : null,
+      image: (mule.images && mule.images.length > 0) ? mule.images[0] : null,
     })
   });
   if (!res.ok) throw new Error(await res.text());
@@ -60,10 +60,11 @@ function rowToMule(row) {
       if (m) return m[1].split(',');
       return [];
     })(),
-    notes: (row.notes || '').replace(/\[tasted:[^\]]+\]\s?/, '').replace(/\[city:[^\]]+\]\s?/, ''),
+    notes: (row.notes || '').replace(/\[tasted:[^\]]+\]\s?/, '').replace(/\[city:[^\]]+\]\s?/, '').replace(/\[imgs:[^\]]+\]\s?/, ''),
     city: (() => { const m = (row.notes || '').match(/\[city:([^\]]+)\]/); return m ? m[1] : (row.location || '').split('|')[1]?.trim() || ''; })(),
+    images: (() => { const m = (row.notes || '').match(/\[imgs:([^\]]+)\]/); const extra = m ? m[1].split('|||') : []; return row.image ? [row.image, ...extra] : extra; })(),
     tags: row.tags || [], price: row.price,
-    image: row.image, createdAt: row.created_at,
+    image: row.image, createdAt: row.created_at, lat: row.lat, lng: row.lng,
   };
 }
 
@@ -169,12 +170,26 @@ function MapView({ mules, onSelectMule }) {
       const map = L.map(mapRef.current).setView([48, 15], 3);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
       mules.forEach(async mule => {
-        if (!mule.location) return;
+        if (!mule.location && !mule.city) return;
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(mule.location)}&format=json&limit=1`);
+          // Use cached coords if available
+          if (mule.lat && mule.lng) {
+            const lat = mule.lat, lng = mule.lng;
+            const avg = getAvg(mule);
+            const color = avg >= 4 ? '#C8923A' : avg >= 3 ? '#8a8a20' : '#c85050';
+            const icon = L.divIcon({ html: `<div style='background:${color};width:34px;height:34px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer'>🍺</div>`, className: '', iconSize: [34,34], iconAnchor: [17,17] });
+            const marker = L.marker([lat, lng], { icon }).addTo(map);
+            marker.bindPopup(`<div style='font-family:Georgia,serif;min-width:160px;padding:4px'><b style='font-size:14px'>${mule.name}</b><br><span style='color:#888;font-size:12px'>📍 ${mule.city || mule.location}</span><br><span style='color:#C8923A;font-weight:bold'>⭐ ${fmtAvg(avg)}/5</span>${mule.price ? `<br><span style='color:#666;font-size:12px'>💰 ${mule.price} SEK</span>` : ''}</div>`);
+            marker.on('click', () => onSelectMule(mule));
+            return;
+          }
+          const searchQ = mule.city || mule.location;
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQ)}&format=json&limit=1`);
           const data = await res.json();
           if (!data[0]) return;
           const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+          // Save coords to DB for next time
+          fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${mule.id}`, { method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ lat, lng }) }).catch(() => {});
           const avg = getAvg(mule);
           const color = avg >= 4 ? "#C8923A" : avg >= 3 ? "#8a8a20" : "#c85050";
           const icon = L.divIcon({
@@ -274,6 +289,20 @@ function MapPicker({ onSelect, onClose }) {
             <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && search()}
               placeholder="Search for a bar or city..." style={{ flex: 1, background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 14px", color: "#e8d5b0", fontSize: 14, outline: "none" }} />
             <button onClick={search} style={{ background: "#C8923A", border: "none", borderRadius: 10, padding: "10px 16px", color: "#0f0b06", fontWeight: 700, cursor: "pointer" }}>{searching ? "..." : "Search"}</button>
+            <button onClick={() => {
+              if (!navigator.geolocation) return alert("GPS not available");
+              navigator.geolocation.getCurrentPosition(async pos => {
+                const { latitude: lat, longitude: lng } = pos.coords;
+                const L = window.L;
+                if (markerRef.current) markerRef.current.remove();
+                markerRef.current = L.marker([lat, lng]).addTo(mapInstanceRef.current);
+                mapInstanceRef.current.setView([lat, lng], 16);
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+                const data = await res.json();
+                const loc = data.display_name?.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+                setPin({ location: loc }); setQuery(loc);
+              }, () => alert("Could not get location"));
+            }} style={{ background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#7a6a52", cursor: "pointer", fontSize: 18 }} title="Use my location">📍</button>
           </div>
           {results.length > 0 && (
             <div style={{ marginTop: 8, background: "#0f0b06", borderRadius: 10, border: "1px solid #2a1f0e", overflow: "hidden" }}>
@@ -361,7 +390,7 @@ function LoginScreen({ onLogin }) {
               </button>
             ))}
           </div>
-          <div style={{ color: "#3a2e1a", fontSize: 12 }}>Default PIN is 1337</div>
+
         </div>
       )}
     </div>
@@ -379,7 +408,7 @@ function MuleCard({ mule, onClick }) {
       onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 40px rgba(200,146,58,0.2)"; }}
       onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.4)"; }}>
       <div style={{ position: "relative", height: 180, background: "#0f0b06", overflow: "hidden" }}>
-        {mule.image ? <img src={mule.image} alt={mule.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        {(mule.images && mule.images[0]) || mule.image ? <img src={(mule.images && mule.images[0]) || mule.image} alt={mule.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 64 }}>🍺</div>}
         <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", borderRadius: 20, padding: "4px 10px", fontSize: 14, border: "1px solid #3a2e1a" }}>
           {tasted.badge}
@@ -424,7 +453,19 @@ function Modal({ mule, onClose, onDelete, onEdit }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, backdropFilter: "blur(4px)" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(135deg, #1a1208 0%, #231a0d 100%)", border: "1px solid #3a2e1a", borderRadius: 20, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 80px rgba(0,0,0,0.8)" }}>
-        {mule.image && <div style={{ height: 260, overflow: "hidden", borderRadius: "20px 20px 0 0" }}><img src={mule.image} alt={mule.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
+        {((mule.images && mule.images.length > 0) || mule.image) && (
+          <div style={{ borderRadius: "20px 20px 0 0", overflow: "hidden" }}>
+            {mule.images && mule.images.length > 1 ? (
+              <div style={{ display: "flex", overflowX: "auto", scrollSnapType: "x mandatory" }}>
+                {mule.images.map((img, i) => (
+                  <img key={i} src={img} alt={mule.name} style={{ minWidth: "100%", height: 260, objectFit: "cover", scrollSnapAlign: "start" }} />
+                ))}
+              </div>
+            ) : (
+              <div style={{ height: 260 }}><img src={(mule.images && mule.images[0]) || mule.image} alt={mule.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+            )}
+          </div>
+        )}
         <div style={{ padding: 28 }}>
           <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, color: "#e8d5b0", fontWeight: 700, marginBottom: 8 }}>{mule.name}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
@@ -475,9 +516,9 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
     if (initialData) {
       const tb = Array.isArray(initialData.tastedBy) ? initialData.tastedBy : [];
       const tastedBy = tb.length === 2 ? "both" : tb[0] || "both";
-      return { name: initialData.name || "", location: initialData.location || "", city: initialData.city || "", ratingTaste: initialData.ratingTaste || 3, ratingLooks: initialData.ratingLooks || 3, date: initialData.date || new Date().toISOString().split("T")[0], notes: initialData.notes || "", tags: initialData.tags || [], image: initialData.image || null, price: initialData.price || "", tastedBy };
+      return { name: initialData.name || "", location: initialData.location || "", city: initialData.city || "", ratingTaste: initialData.ratingTaste || 3, ratingLooks: initialData.ratingLooks || 3, date: initialData.date || new Date().toISOString().split("T")[0], notes: initialData.notes || "", tags: initialData.tags || [], images: initialData.images || (initialData.image ? [initialData.image] : []), price: initialData.price || "", tastedBy };
     }
-    return { name: "", location: "", city: "", ratingTaste: 3, ratingLooks: 3, date: new Date().toISOString().split("T")[0], notes: "", tags: [], image: null, price: "", tastedBy: "both" };
+    return { name: "", location: "", city: "", ratingTaste: 3, ratingLooks: 3, date: new Date().toISOString().split("T")[0], notes: "", tags: [], images: [], price: "", tastedBy: "both" };
   });
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -497,7 +538,8 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
         if (w > h && w > MAX) { h = h * MAX / w; w = MAX; } else if (h > MAX) { w = w * MAX / h; h = MAX; }
         const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
         canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        setForm(p => ({ ...p, image: canvas.toDataURL("image/jpeg", 0.5), imageChanged: true }));
+        const compressed = canvas.toDataURL("image/jpeg", 0.5);
+        setForm(p => ({ ...p, images: [...(p.images || []), compressed], imageChanged: true }));
       };
       img.src = evt.target.result;
     };
@@ -512,7 +554,9 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
     const tastedByArr = form.tastedBy === "both" ? ["Markus", "Anders"] : [form.tastedBy];
     const tastedNote = `[tasted:${tastedByArr.join(',')}]`;
     const cityNote = form.city ? `[city:${form.city}]` : '';
-    const notesWithMeta = [tastedNote, cityNote, form.notes].filter(Boolean).join(' ');
+    const extraImgs = form.images && form.images.length > 1 ? form.images.slice(1) : [];
+    const imgsNote = extraImgs.length > 0 ? `[imgs:${extraImgs.join('|||')}]` : '';
+    const notesWithMeta = [tastedNote, cityNote, imgsNote, form.notes].filter(Boolean).join(' ');
     await onSave({ ...form, notes: notesWithMeta, rating: (form.ratingTaste + form.ratingLooks) / 2, addedBy: currentUser, tastedBy: tastedByArr });
     setSaving(false);
   };
@@ -552,11 +596,24 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
             </div>
             <div><label style={labelStyle}>Price (SEK)</label><input style={inputStyle} type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="e.g. 150" /></div>
             <div>
-              <label style={labelStyle}>Photo</label>
+              <label style={labelStyle}>Photos ({form.images ? form.images.length : 0}/5)</label>
               <input ref={fileRef} type="file" accept="image/*" onChange={handleImage} style={{ display: "none" }} />
-              <button onClick={() => fileRef.current.click()} style={{ background: "#0f0b06", border: "1px dashed #3a2e1a", borderRadius: 10, padding: "10px 20px", color: "#7a6a52", cursor: "pointer", fontSize: 14, width: "100%" }}>
-                {form.image ? "✅ Photo added — click to change" : "📷 Upload a photo"}
-              </button>
+              {form.images && form.images.length > 0 && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                  {form.images.map((img, i) => (
+                    <div key={i} style={{ position: "relative" }}>
+                      <img src={img} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid #3a2e1a" }} />
+                      <button onClick={() => setForm(f => ({ ...f, images: f.images.filter((_, j) => j !== i) }))}
+                        style={{ position: "absolute", top: -6, right: -6, background: "#c85050", border: "none", borderRadius: "50%", width: 18, height: 18, color: "#fff", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(!form.images || form.images.length < 5) && (
+                <button onClick={() => fileRef.current.click()} style={{ background: "#0f0b06", border: "1px dashed #3a2e1a", borderRadius: 10, padding: "10px 20px", color: "#7a6a52", cursor: "pointer", fontSize: 14, width: "100%" }}>
+                  📷 {form.images && form.images.length > 0 ? "Add another photo" : "Upload a photo"}
+                </button>
+              )}
             </div>
             <div>
               <label style={labelStyle}>Tags</label>
