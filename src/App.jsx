@@ -26,19 +26,24 @@ async function dbInsert(mule) {
   return res.json();
 }
 async function dbUpdate(id, mule) {
+  console.log("Updating mule id:", id, mule);
+  const body = {
+    name: mule.name, location: mule.location, date: mule.date || null,
+    rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
+    added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
+    price: mule.price ? parseInt(mule.price) : null,
+    image: mule.image || null,
+  };
+  console.log("PATCH body:", JSON.stringify(body));
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${id}`, {
     method: "PATCH",
     headers: { ...headers, Prefer: "return=representation" },
-    body: JSON.stringify({
-      name: mule.name, location: mule.location, date: mule.date || null,
-      rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
-      added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
-      price: mule.price ? parseInt(mule.price) : null,
-      image: mule.image || null,
-    })
+    body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const text = await res.text();
+  console.log("PATCH response status:", res.status, text);
+  if (!res.ok) throw new Error(text);
+  return text ? JSON.parse(text) : {};
 }
 async function dbDelete(id) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${id}`, { method: "DELETE", headers });
