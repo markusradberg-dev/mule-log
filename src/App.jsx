@@ -33,7 +33,8 @@ async function dbUpdate(id, mule) {
       name: mule.name, location: mule.location, date: mule.date || null,
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
       added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
-      price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
+      price: mule.price ? parseInt(mule.price) : null,
+      image: mule.image || null,
     })
   });
   if (!res.ok) throw new Error(await res.text());
@@ -605,7 +606,16 @@ export default function App() {
   useEffect(() => { if (currentUser) load(); }, [currentUser]);
 
   const addMule = async mule => { await dbInsert(mule); await load(); setShowAdd(false); };
-  const updateMule = async mule => { await dbUpdate(editingMule.id, mule); await load(); setEditingMule(null); };
+  const updateMule = async mule => {
+    const tastedByArr = Array.isArray(mule.tastedBy) ? mule.tastedBy : [mule.tastedBy];
+    const tastedNote = `[tasted:${tastedByArr.join(',')}]`;
+    const cityNote = mule.city ? `[city:${mule.city}]` : '';
+    const cleanNotes = (mule.notes || '').replace(/\[tasted:[^\]]+\]\s?/g, '').replace(/\[city:[^\]]+\]\s?/g, '').trim();
+    const notesWithMeta = [tastedNote, cityNote, cleanNotes].filter(Boolean).join(' ');
+    await dbUpdate(editingMule.id, { ...mule, notes: notesWithMeta, rating: (mule.ratingTaste + mule.ratingLooks) / 2 });
+    await load();
+    setEditingMule(null);
+  };
   const deleteMule = async id => { await dbDelete(id); setMules(p => p.filter(m => m.id !== id)); };
 
   if (!currentUser) return <LoginScreen onLogin={setCurrentUser} />;
