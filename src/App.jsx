@@ -232,9 +232,16 @@ function MapView({ mules, onSelectMule }) {
           }
           const avg = getAvg(mule);
           const color = avg >= 4 ? '#C8923A' : avg >= 3 ? '#8a8a20' : '#c85050';
+          const svgMug = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+            <rect x="6" y="8" width="18" height="22" rx="3" fill="${color}" stroke="white" stroke-width="1.5"/>
+            <rect x="5" y="8" width="20" height="4" rx="2" fill="${color}" stroke="white" stroke-width="1"/>
+            <path d="M24 13 Q31 13 31 19 Q31 25 24 25" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <line x1="11" y1="14" x2="11" y2="28" stroke="white" stroke-width="0.7" opacity="0.3"/>
+            <line x1="15" y1="14" x2="15" y2="28" stroke="white" stroke-width="0.7" opacity="0.3"/>
+          </svg>`;
           const marker = new window.google.maps.Marker({
             position: { lat, lng }, map,
-            icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+            icon: { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgMug), scaledSize: new window.google.maps.Size(36, 36), anchor: new window.google.maps.Point(18, 18) },
             title: mule.name
           });
           const infoWindow = new window.google.maps.InfoWindow({
@@ -496,6 +503,30 @@ function MuleCard({ mule, onClick }) {
   );
 }
 
+// ── Image Gallery ────────────────────────────────────────────────────────────
+function ImageGallery({ images, name }) {
+  const [idx, setIdx] = useState(0);
+  return (
+    <div style={{ position: "relative", height: 260, overflow: "hidden" }}>
+      <img src={images[idx]} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      {idx > 0 && (
+        <button onClick={e => { e.stopPropagation(); setIdx(i => i - 1); }}
+          style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>‹</button>
+      )}
+      {idx < images.length - 1 && (
+        <button onClick={e => { e.stopPropagation(); setIdx(i => i + 1); }}
+          style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>›</button>
+      )}
+      <div style={{ position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6 }}>
+        {images.map((_, i) => (
+          <div key={i} onClick={e => { e.stopPropagation(); setIdx(i); }}
+            style={{ width: 6, height: 6, borderRadius: "50%", background: i === idx ? "#C8923A" : "rgba(255,255,255,0.5)", cursor: "pointer" }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Modal ─────────────────────────────────────────────────────────────────────
 function Modal({ mule, onClose, onDelete, onEdit }) {
   if (!mule) return null;
@@ -508,11 +539,7 @@ function Modal({ mule, onClose, onDelete, onEdit }) {
         {((mule.images && mule.images.length > 0) || mule.image) && (
           <div style={{ borderRadius: "20px 20px 0 0", overflow: "hidden" }}>
             {mule.images && mule.images.length > 1 ? (
-              <div style={{ display: "flex", overflowX: "auto", scrollSnapType: "x mandatory" }}>
-                {mule.images.map((img, i) => (
-                  <img key={i} src={img} alt={mule.name} style={{ minWidth: "100%", height: 260, objectFit: "cover", scrollSnapAlign: "start" }} />
-                ))}
-              </div>
+              <ImageGallery images={mule.images} name={mule.name} />
             ) : (
               <div style={{ height: 260 }}><img src={(mule.images && mule.images[0]) || mule.image} alt={mule.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
             )}
