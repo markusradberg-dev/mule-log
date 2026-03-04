@@ -618,8 +618,9 @@ export default function App() {
     const cleanNotes = (mule.notes || '').replace(/\[tasted:[^\]]+\]\s?/g, '').replace(/\[city:[^\]]+\]\s?/g, '').trim();
     const notesWithMeta = [tastedNote, cityNote, cleanNotes].filter(Boolean).join(' ');
     await dbUpdate(editingMule.id, { ...mule, notes: notesWithMeta, rating: (mule.ratingTaste + mule.ratingLooks) / 2 });
-    await load();
     setEditingMule(null);
+    setMules([]);
+    await load();
   };
   const deleteMule = async id => { await dbDelete(id); setMules(p => p.filter(m => m.id !== id)); };
 
