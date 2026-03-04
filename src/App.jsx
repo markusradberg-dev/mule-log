@@ -25,6 +25,20 @@ async function dbInsert(mule) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+async function dbUpdate(id, mule) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${id}`, {
+    method: "PATCH",
+    headers: { ...headers, Prefer: "return=representation" },
+    body: JSON.stringify({
+      name: mule.name, location: mule.location, date: mule.date || null,
+      rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
+      added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
+      price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
+    })
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 async function dbDelete(id) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${id}`, { method: "DELETE", headers });
   if (!res.ok) throw new Error(await res.text());
@@ -43,7 +57,9 @@ function rowToMule(row) {
       if (m) return m[1].split(',');
       return [];
     })(),
-    notes: (row.notes || '').replace(/\[tasted:[^\]]+\]\s?/, ''), tags: row.tags || [], price: row.price,
+    notes: (row.notes || '').replace(/\[tasted:[^\]]+\]\s?/, '').replace(/\[city:[^\]]+\]\s?/, ''),
+    city: (() => { const m = (row.notes || '').match(/\[city:([^\]]+)\]/); return m ? m[1] : (row.location || '').split('|')[1]?.trim() || ''; })(),
+    tags: row.tags || [], price: row.price,
     image: row.image, createdAt: row.created_at,
   };
 }
@@ -371,7 +387,7 @@ function MuleCard({ mule, onClick }) {
       </div>
       <div style={{ padding: 16 }}>
         <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, color: "#e8d5b0", fontWeight: 700, marginBottom: 4 }}>{mule.name}</div>
-        <div style={{ color: "#7a6a52", fontSize: 13, marginBottom: 10 }}>📍 {mule.location || "Unknown"}</div>
+        <div style={{ color: "#7a6a52", fontSize: 13, marginBottom: 10 }}>📍 {mule.city ? `${mule.city}` : ''}{mule.city && mule.location ? ' · ' : ''}{mule.location || (!mule.city ? 'Unknown' : '')}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <StarRating value={avg} size={18} />
@@ -397,7 +413,7 @@ function MuleCard({ mule, onClick }) {
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-function Modal({ mule, onClose, onDelete }) {
+function Modal({ mule, onClose, onDelete, onEdit }) {
   if (!mule) return null;
   const avg = getAvg(mule);
   const tasted = getTastedLabel(mule.tastedBy);
@@ -441,6 +457,7 @@ function Modal({ mule, onClose, onDelete }) {
           )}
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={onClose} style={{ flex: 1, background: "transparent", border: "1px solid #3a2e1a", color: "#7a6a52", borderRadius: 10, padding: 10, cursor: "pointer", fontSize: 14 }}>Close</button>
+            <button onClick={() => { onEdit(mule); onClose(); }} style={{ background: "#0f1a2a", border: "1px solid #203a5a", color: "#7aaac8", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14 }}>Edit ✏️</button>
             <button onClick={() => { onDelete(mule.id); onClose(); }} style={{ background: "#3a1010", border: "1px solid #5a2020", color: "#c87a7a", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14 }}>Delete</button>
           </div>
         </div>
@@ -450,8 +467,15 @@ function Modal({ mule, onClose, onDelete }) {
 }
 
 // ── Add Form ──────────────────────────────────────────────────────────────────
-function AddMuleForm({ onSave, onClose, currentUser }) {
-  const [form, setForm] = useState({ name: "", location: "", ratingTaste: 3, ratingLooks: 3, date: new Date().toISOString().split("T")[0], notes: "", tags: [], image: null, price: "", tastedBy: "both" });
+function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode = false, initialData = null }) {
+  const [form, setForm] = useState(() => {
+    if (initialData) {
+      const tb = Array.isArray(initialData.tastedBy) ? initialData.tastedBy : [];
+      const tastedBy = tb.length === 2 ? "both" : tb[0] || "both";
+      return { name: initialData.name || "", location: initialData.location || "", city: initialData.city || "", ratingTaste: initialData.ratingTaste || 3, ratingLooks: initialData.ratingLooks || 3, date: initialData.date || new Date().toISOString().split("T")[0], notes: initialData.notes || "", tags: initialData.tags || [], image: initialData.image || null, price: initialData.price || "", tastedBy };
+    }
+    return { name: "", location: "", city: "", ratingTaste: 3, ratingLooks: 3, date: new Date().toISOString().split("T")[0], notes: "", tags: [], image: null, price: "", tastedBy: "both" };
+  });
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -484,8 +508,9 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
     setSaving(true);
     const tastedByArr = form.tastedBy === "both" ? ["Markus", "Anders"] : [form.tastedBy];
     const tastedNote = `[tasted:${tastedByArr.join(',')}]`;
-    const notesWithTasted = tastedNote + (form.notes ? ' ' + form.notes : '');
-    await onSave({ ...form, notes: notesWithTasted, rating: (form.ratingTaste + form.ratingLooks) / 2, addedBy: currentUser, tastedBy: tastedByArr });
+    const cityNote = form.city ? `[city:${form.city}]` : '';
+    const notesWithMeta = [tastedNote, cityNote, form.notes].filter(Boolean).join(' ');
+    await onSave({ ...form, notes: notesWithMeta, rating: (form.ratingTaste + form.ratingLooks) / 2, addedBy: currentUser, tastedBy: tastedByArr });
     setSaving(false);
   };
 
@@ -495,17 +520,22 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, backdropFilter: "blur(4px)" }}>
         <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(135deg, #1a1208 0%, #231a0d 100%)", border: "1px solid #3a2e1a", borderRadius: 20, maxWidth: 500, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 80px rgba(0,0,0,0.8)", padding: 28 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#C8923A" }}>🍺 Log a New Mule</div>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#C8923A" }}>{editMode ? '✏️ Edit Mule' : '🍺 Log a New Mule'}</div>
             <div style={{ color: "#5a4a32", fontSize: 12 }}>as <span style={{ color: "#C8923A", fontWeight: 700 }}>{currentUser}</span></div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div><label style={labelStyle}>Bar / Drink Name *</label><input style={inputStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Copper Mule at The Alchemist" /></div>
             <div>
-              <label style={labelStyle}>Location *</label>
+              <label style={labelStyle}>Bar / Address</label>
               <div style={{ display: "flex", gap: 8 }}>
-                <input style={{ ...inputStyle, flex: 1 }} value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="e.g. London, UK" />
+                <input style={{ ...inputStyle, flex: 1 }} value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="e.g. The Alchemist, King St" />
                 <button onClick={() => setShowMap(true)} title="Drop a pin" style={{ background: form.location ? "#2a1a06" : "#0f0b06", border: `1px solid ${form.location ? "#C8923A" : "#3a2e1a"}`, borderRadius: 10, padding: "0 14px", color: form.location ? "#C8923A" : "#7a6a52", cursor: "pointer", fontSize: 18 }}>📍</button>
               </div>
+            </div>
+            <div>
+              <label style={labelStyle}>City *</label>
+              <input list="city-list" style={inputStyle} value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="e.g. Tirana" />
+              <datalist id="city-list">{knownCities.map(c => <option key={c} value={c} />)}</datalist>
             </div>
             <div><label style={labelStyle}>Date</label><input style={inputStyle} type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
             <div><label style={labelStyle}>Who tasted it?</label><TastedByPicker value={form.tastedBy} onChange={v => setForm(f => ({ ...f, tastedBy: v }))} /></div>
@@ -541,7 +571,7 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
           <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
             <button onClick={onClose} style={{ flex: 1, background: "transparent", border: "1px solid #3a2e1a", color: "#7a6a52", borderRadius: 10, padding: 12, cursor: "pointer", fontSize: 14 }}>Cancel</button>
             <button onClick={handleSubmit} disabled={saving} style={{ flex: 2, background: saving ? "#5a4a32" : "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: 12, cursor: saving ? "not-allowed" : "pointer", fontSize: 15, fontWeight: 700, fontFamily: "'Playfair Display', serif" }}>
-              {saving ? "Saving..." : "Save Mule 🍺"}
+              {saving ? "Saving..." : editMode ? "Update Mule ✏️" : "Save Mule 🍺"}
             </button>
           </div>
         </div>
@@ -557,12 +587,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingMule, setEditingMule] = useState(null);
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("newest");
   const [filterTag, setFilterTag] = useState("");
   const [filterWho, setFilterWho] = useState("");
   const [tab, setTab] = useState("list"); // "list" | "map"
+  const [filterCity, setFilterCity] = useState("");
 
   const load = async () => {
     try { setError(null); const rows = await dbGetAll(); setMules(rows.map(rowToMule)); }
@@ -573,6 +605,7 @@ export default function App() {
   useEffect(() => { if (currentUser) load(); }, [currentUser]);
 
   const addMule = async mule => { await dbInsert(mule); await load(); setShowAdd(false); };
+  const updateMule = async mule => { await dbUpdate(editingMule.id, mule); await load(); setEditingMule(null); };
   const deleteMule = async id => { await dbDelete(id); setMules(p => p.filter(m => m.id !== id)); };
 
   if (!currentUser) return <LoginScreen onLogin={setCurrentUser} />;
@@ -582,6 +615,7 @@ export default function App() {
     .filter(m => { const q = search.toLowerCase(); return !q || m.name?.toLowerCase().includes(q) || m.location?.toLowerCase().includes(q); })
     .filter(m => !filterTag || m.tags?.includes(filterTag))
     .filter(m => { if (!filterWho) return true; return m.tastedBy?.includes(filterWho); })
+    .filter(m => !filterCity || (m.city || '').toLowerCase() === filterCity.toLowerCase())
     .sort((a, b) => {
       if (sortBy === "newest") return new Date(b.createdAt) - new Date(a.createdAt);
       if (sortBy === "oldest") return new Date(a.createdAt) - new Date(b.createdAt);
@@ -595,7 +629,7 @@ export default function App() {
     });
 
   const avgRating = mules.length ? fmtAvg(mules.reduce((s, m) => s + getAvg(m), 0) / mules.length) : "—";
-  const cities = new Set(mules.map(m => m.location?.split(/[,\/]/)[0]?.trim().toLowerCase()).filter(Boolean));
+  const cities = new Set(mules.map(m => (m.city || '').trim().toLowerCase()).filter(m => m));
   const bestValue = mules.filter(m => m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
 
   return (
@@ -661,6 +695,10 @@ export default function App() {
               <option value="Anders">👨 Anders</option>
             </select>
             {allTags.length > 0 && <select value={filterTag} onChange={e => setFilterTag(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}><option value="">All Tags</option>{allTags.map(t => <option key={t} value={t}>{t}</option>)}</select>}
+            <select value={filterCity} onChange={e => setFilterCity(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}>
+              <option value="">All Cities</option>
+              {[...new Set(mules.map(m => m.city).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
             <button onClick={() => setShowAdd(true)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", fontFamily: "'Playfair Display', serif" }}>+ Log a Mule</button>
           </div>
 
@@ -682,8 +720,9 @@ export default function App() {
         </>
       )}
 
-      {showAdd && <AddMuleForm onSave={addMule} onClose={() => setShowAdd(false)} currentUser={currentUser} />}
-      {selected && <Modal mule={selected} onClose={() => setSelected(null)} onDelete={deleteMule} />}
+      {showAdd && <AddMuleForm onSave={addMule} onClose={() => setShowAdd(false)} currentUser={currentUser} knownCities={[...new Set(mules.map(m => m.city).filter(Boolean))]} />}
+      {editingMule && <AddMuleForm editMode={true} initialData={editingMule} onSave={updateMule} onClose={() => setEditingMule(null)} currentUser={currentUser} knownCities={[...new Set(mules.map(m => m.city).filter(Boolean))]} />}
+      {selected && <Modal mule={selected} onClose={() => setSelected(null)} onDelete={deleteMule} onEdit={m => { setEditingMule(m); setSelected(null); }} />}
     </div>
   );
 }
