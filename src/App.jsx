@@ -21,7 +21,7 @@ async function dbInsert(mule) {
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
       added_by: mule.addedBy, tasted_by: mule.tastedBy, notes: mule.notes, tags: mule.tags,
       price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
-      lat: mule.lat || null, lng: mule.lng || null,
+
     })
   });
   if (!res.ok) throw new Error(await res.text());
@@ -39,7 +39,7 @@ function rowToMule(row) {
     addedBy: row.added_by, tastedBy: row.tasted_by || [],
     notes: row.notes, tags: row.tags || [], price: row.price,
     image: row.image, createdAt: row.created_at,
-    lat: row.lat, lng: row.lng,
+
   };
 }
 
