@@ -282,7 +282,26 @@ function AddMuleForm({ onSave, onClose, currentUser }) {
   const inputStyle = { width: "100%", background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 14px", color: "#e8d5b0", fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit" };
   const labelStyle = { color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, display: "block" };
 
-  const handleImage = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => setForm(p => ({ ...p, image: r.result })); r.readAsDataURL(f); };
+  const handleImage = e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = evt => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 800;
+        let w = img.width, h = img.height;
+        if (w > h && w > MAX) { h = h * MAX / w; w = MAX; }
+        else if (h > MAX) { w = w * MAX / h; h = MAX; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        setForm(p => ({ ...p, image: canvas.toDataURL("image/jpeg", 0.7) }));
+      };
+      img.src = evt.target.result;
+    };
+    r.readAsDataURL(f);
+  };
   const addTag = tag => { if (!tag.trim() || form.tags.includes(tag.trim())) return; setForm(f => ({ ...f, tags: [...f.tags, tag.trim()] })); setTagInput(""); };
 
   const handleSubmit = async () => {
