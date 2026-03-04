@@ -32,7 +32,7 @@ async function dbUpdate(id, mule) {
     added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
     price: mule.price ? parseInt(mule.price) : null,
   };
-  if (mule.imageChanged) body.image = mule.image || null;
+  if (mule.imageChanged) body.image = (mule.images && mule.images.length > 0) ? mule.images[0] : null;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${id}`, {
     method: "PATCH",
     headers: { ...headers, Prefer: "return=representation" },
@@ -167,8 +167,9 @@ function MapView({ mules, onSelectMule }) {
     const init = () => {
       if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
       const L = window.L;
-      const map = L.map(mapRef.current).setView([48, 15], 3);
+      const map = L.map(mapRef.current, { preferCanvas: true }).setView([48, 15], 3);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
+      setTimeout(() => map.invalidateSize(), 100);
       mules.forEach(async mule => {
         if (!mule.location && !mule.city) return;
         try {
@@ -242,8 +243,9 @@ function MapPicker({ onSelect, onClose }) {
     const loadMap = () => {
       if (mapInstanceRef.current) return;
       const L = window.L;
-      const map = L.map(mapRef.current).setView([48, 15], 4);
+      const map = L.map(mapRef.current, { preferCanvas: true }).setView([48, 15], 4);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
+      setTimeout(() => map.invalidateSize(), 100);
       map.on("click", async (e) => {
         const { lat, lng } = e.latlng;
         if (markerRef.current) markerRef.current.remove();
@@ -666,9 +668,13 @@ export default function App() {
 
   const addMule = async mule => { await dbInsert(mule); await load(); setShowAdd(false); };
   const updateMule = async mule => {
-    await dbUpdate(editingMule.id, { ...mule, rating: (mule.ratingTaste + mule.ratingLooks) / 2 });
-    setEditingMule(null);
-    window.location.reload();
+    try {
+      await dbUpdate(editingMule.id, { ...mule, rating: (mule.ratingTaste + mule.ratingLooks) / 2 });
+      setEditingMule(null);
+      window.location.reload();
+    } catch(e) {
+      alert("Save failed: " + e.message);
+    }
   };
   const deleteMule = async id => { await dbDelete(id); setMules(p => p.filter(m => m.id !== id)); };
 
