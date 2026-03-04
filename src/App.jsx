@@ -19,7 +19,7 @@ async function dbInsert(mule) {
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
       added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
       price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
-      tasted_by: mule.tastedBy,
+      // tasted_by saved in notes workaround
     })
   });
   if (!res.ok) throw new Error(await res.text());
