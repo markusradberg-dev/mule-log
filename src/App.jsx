@@ -19,7 +19,7 @@ async function dbInsert(mule) {
     body: JSON.stringify({
       name: mule.name, location: mule.location, date: mule.date || null,
       rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
-      added_by: mule.addedBy, tasted_by: mule.tastedBy, notes: mule.notes, tags: mule.tags,
+      added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
       price: mule.price ? parseInt(mule.price) : null, image: mule.image || null,
 
     })
