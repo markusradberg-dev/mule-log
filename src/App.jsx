@@ -306,10 +306,15 @@ function MapPicker({ onSelect, onClose }) {
         const lat = e.latLng.lat(), lng = e.latLng.lng();
         if (markerRef.current) markerRef.current.setMap(null);
         markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map });
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10&addressdetails=1`);
         const data = await res.json();
-        const loc = data.display_name?.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-        setPin({ location: loc });
+        const a = data.address || {};
+        // Broad city: prefer city > town > village > county, zoom=10 gives regional level
+        const city = a.city || a.town || a.municipality || a.village || a.county || a.state_district || "";
+        const country = a.country || "";
+        const barName = a.amenity || a.shop || a.building || "";
+        const loc = [barName, a.road, a.suburb].filter(Boolean).slice(0,2).join(", ") || data.display_name?.split(",").slice(0,2).join(", ") || "";
+        setPin({ location: loc, city });
       });
       mapInstanceRef.current = map;
     };
@@ -334,8 +339,10 @@ function MapPicker({ onSelect, onClose }) {
     markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map: mapInstanceRef.current });
     mapInstanceRef.current.setCenter({ lat, lng });
     mapInstanceRef.current.setZoom(14);
-    const loc = r.display_name.split(",").slice(0, 3).join(", ");
-    setPin({ location: loc }); setResults([]); setQuery(loc);
+    const a = r.address || {};
+    const city = a.city || a.town || a.municipality || a.village || a.county || r.display_name.split(",").slice(-3,-2)[0]?.trim() || "";
+    const loc = r.display_name.split(",").slice(0, 2).join(", ");
+    setPin({ location: loc, city }); setResults([]); setQuery(loc);
   };
 
   return (
@@ -355,10 +362,13 @@ function MapPicker({ onSelect, onClose }) {
                 markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map: mapInstanceRef.current });
                 mapInstanceRef.current.setCenter({ lat, lng });
                 mapInstanceRef.current.setZoom(16);
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10&addressdetails=1`);
                 const data = await res.json();
-                const loc = data.display_name?.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-                setPin({ location: loc }); setQuery(loc);
+                const a = data.address || {};
+                const city = a.city || a.town || a.municipality || a.village || a.county || a.state_district || "";
+                const barName = a.amenity || a.shop || a.building || "";
+                const loc = [barName, a.road, a.suburb].filter(Boolean).slice(0,2).join(", ") || data.display_name?.split(",").slice(0,2).join(", ") || "";
+                setPin({ location: loc, city }); setQuery(city || loc);
               }, () => alert("Could not get location"));
             }} style={{ background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#7a6a52", cursor: "pointer", fontSize: 18 }} title="Use my location">📍</button>
           </div>
@@ -410,7 +420,7 @@ function LoginScreen({ onLogin }) {
     }
   };
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0703", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ minHeight: "100vh", width: "100%", background: "#0a0703", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet" />
       <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
       <MuleLogo size={80} />
@@ -642,7 +652,7 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
 
   return (
     <>
-      {showMap && <MapPicker onSelect={pin => { setForm(f => ({ ...f, location: pin.location })); setShowMap(false); }} onClose={() => setShowMap(false)} />}
+      {showMap && <MapPicker onSelect={pin => { setForm(f => ({ ...f, location: pin.location, city: pin.city || f.city })); setShowMap(false); }} onClose={() => setShowMap(false)} />}
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, backdropFilter: "blur(4px)" }}>
         <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(135deg, #1a1208 0%, #231a0d 100%)", border: "1px solid #3a2e1a", borderRadius: 20, maxWidth: 500, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 80px rgba(0,0,0,0.8)", padding: 28 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
@@ -933,7 +943,7 @@ export default function App() {
   const muleOfMonth = monthMules.length > 0 ? monthMules.sort((a,b) => getAvg(b) - getAvg(a))[0] : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0703", fontFamily: "'Georgia', serif", color: "#e8d5b0" }}>
+    <div style={{ minHeight: "100vh", width: "100%", background: "#0a0703", fontFamily: "'Georgia', serif", color: "#e8d5b0", boxSizing: "border-box" }}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet" />
       <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 
