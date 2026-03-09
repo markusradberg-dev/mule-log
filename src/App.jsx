@@ -309,14 +309,9 @@ function MapPicker({ onSelect, onClose }) {
       mapInstanceRef.current = map;
 
       // Google Places Autocomplete on the search input
-      const searchBox = new google.maps.places.SearchBox(inputRef.current);
-      searchBoxRef.current = searchBox;
-      map.addListener("bounds_changed", () => searchBox.setBounds(map.getBounds()));
-
-      searchBox.addListener("places_changed", () => {
-        const places = searchBox.getPlaces();
-        if (!places || places.length === 0) return;
-        const place = places[0];
+      const autocomplete = new google.maps.places.Autocomplete(inputRef.current, { fields: ["geometry", "name", "address_components", "formatted_address"] });
+      autocomplete.addListener("place_changed", () => {
+        const place = autocomplete.getPlace();
         if (!place.geometry) return;
         if (markerRef.current) markerRef.current.setMap(null);
         markerRef.current = new google.maps.Marker({ position: place.geometry.location, map });
@@ -371,10 +366,20 @@ function MapPicker({ onSelect, onClose }) {
   }, []);
 
   function extractCity(components) {
-    const types = ["locality", "postal_town", "administrative_area_level_2", "administrative_area_level_1"];
-    for (const t of types) {
+    // Try most specific first, then broaden
+    const preferred = ["locality", "postal_town", "sublocality_level_1"];
+    for (const t of preferred) {
       const c = components.find(c => c.types.includes(t));
       if (c) return c.long_name;
+    }
+    // Fall back to administrative areas but skip tiny/vague ones
+    const fallback = ["administrative_area_level_2", "administrative_area_level_1"];
+    for (const t of fallback) {
+      const c = components.find(c => c.types.includes(t));
+      if (c) {
+        // Strip "County", "Kommun", "Region" etc to get cleaner city name
+        return c.long_name.replace(/ (County|Kommun|Region|District|Province|Prefecture)$/i, "").trim();
+      }
     }
     return "";
   }
@@ -668,7 +673,7 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
               <label style={labelStyle}>Bar / Address</label>
               <div style={{ display: "flex", gap: 8 }}>
                 <input style={{ ...inputStyle, flex: 1 }} value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="e.g. The Alchemist, King St" />
-                <button onClick={() => setShowMap(true)} title="Drop a pin" style={{ background: form.location ? "#2a1a06" : "#0f0b06", border: `1px solid ${form.location ? "#C8923A" : "#3a2e1a"}`, borderRadius: 10, padding: "0 14px", color: form.location ? "#C8923A" : "#7a6a52", cursor: "pointer", fontSize: 18 }}>📍</button>
+                <button onClick={e => { e.preventDefault(); e.stopPropagation(); setShowMap(true); }} title="Drop a pin" style={{ background: form.location ? "#2a1a06" : "#0f0b06", border: `1px solid ${form.location ? "#C8923A" : "#3a2e1a"}`, borderRadius: 10, padding: "0 14px", color: form.location ? "#C8923A" : "#7a6a52", cursor: "pointer", fontSize: 18 }}>📍</button>
               </div>
             </div>
             <div>
