@@ -385,7 +385,7 @@ function MapPicker({ onSelect, onClose }) {
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 1000, display: "flex", flexDirection: "column" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 3000, display: "flex", flexDirection: "column" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 20, margin: 16, display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", maxHeight: "90vh" }}>
         <div style={{ padding: "14px 16px", borderBottom: "1px solid #2a1f0e", display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ color: "#C8923A", fontSize: 16 }}>📍</div>
