@@ -60,6 +60,7 @@ async function dbInsert(mule) {
       added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
       price: mule.price ? parseInt(mule.price) : null,
       image: (mule.images && mule.images.length > 0) ? mule.images[0] : null,
+      lat: mule.lat || null, lng: mule.lng || null,
     })
   });
   if (!res.ok) throw new Error(await res.text());
@@ -71,6 +72,7 @@ async function dbUpdate(id, mule) {
     rating: mule.rating, rating_taste: mule.ratingTaste, rating_looks: mule.ratingLooks,
     added_by: mule.addedBy, notes: mule.notes, tags: mule.tags,
     price: mule.price ? parseInt(mule.price) : null,
+    lat: mule.lat || null, lng: mule.lng || null,
   };
   if (mule.imageChanged) body.image = (mule.images && mule.images.length > 0) ? mule.images[0] : null;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${id}`, {
@@ -283,16 +285,29 @@ function MapPicker({ onSelect, onClose }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);
-  const searchBoxRef = useRef(null);
   const inputRef = useRef(null);
+  const pinRef = useRef(null); // keep latest pin in ref for geocoder callback
+
+  function extractCity(components) {
+    const preferred = ["locality", "postal_town", "sublocality_level_1"];
+    for (const t of preferred) {
+      const c = components.find(c => c.types.includes(t));
+      if (c) return c.long_name;
+    }
+    const fallback = ["administrative_area_level_2", "administrative_area_level_1"];
+    for (const t of fallback) {
+      const c = components.find(c => c.types.includes(t));
+      if (c) return c.long_name.replace(/ (County|Kommun|Region|District|Province|Prefecture)$/i, "").trim();
+    }
+    return "";
+  }
 
   useEffect(() => {
-    const loadMap = () => {
+    const initMap = (google) => {
       if (mapInstanceRef.current) return;
-      const google = window.google;
-
       const map = new google.maps.Map(mapRef.current, {
         center: { lat: 48, lng: 15 }, zoom: 4,
+        mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
         styles: [
           { elementType: "geometry", stylers: [{ color: "#1a1208" }] },
           { elementType: "labels.text.fill", stylers: [{ color: "#C8923A" }] },
@@ -302,110 +317,99 @@ function MapPicker({ onSelect, onClose }) {
           { featureType: "poi", stylers: [{ visibility: "simplified" }] },
           { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#0f0b06" }] },
         ],
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
       });
       mapInstanceRef.current = map;
 
-      // Google Places Autocomplete on the search input
-      const autocomplete = new google.maps.places.Autocomplete(inputRef.current, { fields: ["geometry", "name", "address_components", "formatted_address"] });
-      autocomplete.addListener("place_changed", () => {
-        const place = autocomplete.getPlace();
-        if (!place.geometry) return;
-        if (markerRef.current) markerRef.current.setMap(null);
-        markerRef.current = new google.maps.Marker({ position: place.geometry.location, map });
-        map.setCenter(place.geometry.location);
-        map.setZoom(16);
-        const city = extractCity(place.address_components || []);
-        const loc = place.name || place.formatted_address?.split(",").slice(0,2).join(", ") || "";
-        setPin({ location: loc, city });
-      });
-
-      // Click on map to drop pin
-      map.addListener("click", async (e) => {
+      // Click to drop pin + reverse geocode
+      map.addListener("click", (e) => {
         const lat = e.latLng.lat(), lng = e.latLng.lng();
         if (markerRef.current) markerRef.current.setMap(null);
         markerRef.current = new google.maps.Marker({ position: { lat, lng }, map });
-        // Reverse geocode with Google
-        const geocoder = new google.maps.Geocoder();
-        geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        new google.maps.Geocoder().geocode({ location: { lat, lng } }, (results, status) => {
           if (status === "OK" && results[0]) {
             const city = extractCity(results[0].address_components || []);
-            const loc = results[0].address_components?.slice(0,2).map(c=>c.long_name).join(", ") || results[0].formatted_address?.split(",").slice(0,2).join(", ") || "";
-            setPin({ location: loc, city });
-            if (inputRef.current) inputRef.current.value = results[0].formatted_address?.split(",").slice(0,2).join(", ") || "";
+            const loc = results[0].name || results[0].formatted_address?.split(",").slice(0, 2).join(", ") || "";
+            const newPin = { location: loc, city, lat, lng };
+            pinRef.current = newPin;
+            setPin(newPin);
+            if (inputRef.current) inputRef.current.value = loc;
           }
         });
       });
 
-      // Try get user location
+      // GPS location
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(pos => {
-          const { latitude: lat, longitude: lng } = pos.coords;
-          map.setCenter({ lat, lng });
+          map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           map.setZoom(13);
         }, () => {});
       }
+
+      // Autocomplete - init after short delay to ensure input is mounted
+      setTimeout(() => {
+        if (!inputRef.current) return;
+        const ac = new google.maps.places.Autocomplete(inputRef.current, {
+          fields: ["geometry", "name", "address_components", "formatted_address"]
+        });
+        ac.addListener("place_changed", () => {
+          const place = ac.getPlace();
+          if (!place.geometry) return;
+          const lat = place.geometry.location.lat(), lng = place.geometry.location.lng();
+          if (markerRef.current) markerRef.current.setMap(null);
+          markerRef.current = new google.maps.Marker({ position: { lat, lng }, map });
+          map.setCenter({ lat, lng });
+          map.setZoom(16);
+          const city = extractCity(place.address_components || []);
+          const loc = place.name || place.formatted_address?.split(",").slice(0, 2).join(", ") || "";
+          const newPin = { location: loc, city, lat, lng };
+          pinRef.current = newPin;
+          setPin(newPin);
+        });
+      }, 300);
     };
 
-    const loadScript = () => {
-      if (window.google && window.google.maps && window.google.maps.places) { loadMap(); return; }
-      if (document.getElementById("gmaps-script")) {
-        document.getElementById("gmaps-script").addEventListener("load", loadMap);
-        return;
+    if (window.google?.maps?.places) {
+      initMap(window.google);
+    } else {
+      const existing = document.getElementById("gmaps-script");
+      if (existing) {
+        existing.addEventListener("load", () => initMap(window.google));
+      } else {
+        const s = document.createElement("script");
+        s.id = "gmaps-script";
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
+        s.onload = () => initMap(window.google);
+        document.head.appendChild(s);
       }
-      const s = document.createElement("script");
-      s.id = "gmaps-script";
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
-      s.onload = loadMap;
-      document.head.appendChild(s);
-    };
-    loadScript();
+    }
     return () => { mapInstanceRef.current = null; };
   }, []);
 
-  function extractCity(components) {
-    // Try most specific first, then broaden
-    const preferred = ["locality", "postal_town", "sublocality_level_1"];
-    for (const t of preferred) {
-      const c = components.find(c => c.types.includes(t));
-      if (c) return c.long_name;
-    }
-    // Fall back to administrative areas but skip tiny/vague ones
-    const fallback = ["administrative_area_level_2", "administrative_area_level_1"];
-    for (const t of fallback) {
-      const c = components.find(c => c.types.includes(t));
-      if (c) {
-        // Strip "County", "Kommun", "Region" etc to get cleaner city name
-        return c.long_name.replace(/ (County|Kommun|Region|District|Province|Prefecture)$/i, "").trim();
-      }
-    }
-    return "";
-  }
-
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 3000, display: "flex", flexDirection: "column" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 20, margin: 16, display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", maxHeight: "90vh" }}>
-        <div style={{ padding: "14px 16px", borderBottom: "1px solid #2a1f0e", display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ color: "#C8923A", fontSize: 16 }}>📍</div>
-          <input ref={inputRef} type="text" placeholder="Search for a bar or city..." defaultValue=""
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 3000, display: "flex", flexDirection: "column" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 20, margin: 16, display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", maxHeight: "92vh" }}>
+        <div style={{ padding: "12px 14px", borderBottom: "1px solid #2a1f0e", display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 18 }}>📍</span>
+          <input ref={inputRef} type="text" placeholder="Search bar or city..." autoFocus
             style={{ flex: 1, background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 14px", color: "#e8d5b0", fontSize: 15, outline: "none" }} />
         </div>
         <div ref={mapRef} style={{ flex: 1, minHeight: 300 }} />
         <div style={{ padding: 12, borderTop: "1px solid #2a1f0e" }}>
           {pin ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ color: "#e8d5b0", fontSize: 14, fontWeight: 700 }}>{pin.city || pin.location}</div>
                 {pin.location && pin.city && <div style={{ color: "#5a4a32", fontSize: 12 }}>{pin.location}</div>}
               </div>
-              <button onClick={() => onSelect(pin)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", fontWeight: 700, cursor: "pointer" }}>Use this location</button>
+              <button onClick={() => onSelect(pinRef.current || pin)}
+                style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", fontWeight: 700, cursor: "pointer" }}>
+                Use this ✓
+              </button>
             </div>
           ) : (
-            <div style={{ color: "#5a4a32", fontSize: 13, textAlign: "center" }}>Search or tap the map to drop a pin</div>
+            <div style={{ color: "#5a4a32", fontSize: 13, textAlign: "center", marginBottom: 8 }}>Search or tap the map to drop a pin</div>
           )}
-          <button onClick={onClose} style={{ width: "100%", marginTop: 8, background: "transparent", border: "1px solid #3a2e1a", color: "#5a4a32", borderRadius: 10, padding: 10, cursor: "pointer" }}>Cancel</button>
+          <button onClick={onClose} style={{ width: "100%", background: "transparent", border: "1px solid #3a2e1a", color: "#5a4a32", borderRadius: 10, padding: 10, cursor: "pointer" }}>Cancel</button>
         </div>
       </div>
     </div>
@@ -654,13 +658,13 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
     const extraImgs = form.images && form.images.length > 1 ? form.images.slice(1) : [];
     const imgsNote = extraImgs.length > 0 ? `[imgs:${extraImgs.join('|||')}]` : '';
     const notesWithMeta = [tastedNote, cityNote, imgsNote, form.notes].filter(Boolean).join(' ');
-    await onSave({ ...form, notes: notesWithMeta, rating: (form.ratingTaste + form.ratingLooks) / 2, addedBy: currentUser, tastedBy: tastedByArr });
+    await onSave({ ...form, notes: notesWithMeta, rating: (form.ratingTaste + form.ratingLooks) / 2, addedBy: currentUser, tastedBy: tastedByArr, lat: form.pinLat, lng: form.pinLng });
     setSaving(false);
   };
 
   return (
     <>
-      {showMap && <MapPicker onSelect={pin => { setForm(f => ({ ...f, location: pin.location, city: pin.city || f.city })); setShowMap(false); }} onClose={() => setShowMap(false)} />}
+      {showMap && <MapPicker onSelect={pin => { setForm(f => ({ ...f, location: pin.location, city: pin.city || f.city, pinLat: pin.lat, pinLng: pin.lng })); setShowMap(false); }} onClose={() => setShowMap(false)} />}
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, backdropFilter: "blur(4px)" }}>
         <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(135deg, #1a1208 0%, #231a0d 100%)", border: "1px solid #3a2e1a", borderRadius: 20, maxWidth: 500, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 80px rgba(0,0,0,0.8)", padding: 28 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
