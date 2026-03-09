@@ -255,7 +255,7 @@ function MapView({ mules, onSelectMule }) {
     if (window.google && window.google.maps) { init(); }
     else {
       const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}`;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
       s.onload = init; document.head.appendChild(s);
     }
     return () => { mapInstanceRef.current = null; };
@@ -279,18 +279,19 @@ function MapView({ mules, onSelectMule }) {
 
 // ── Map Picker ────────────────────────────────────────────────────────────────
 function MapPicker({ onSelect, onClose }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
   const [pin, setPin] = useState(null);
-  const [searching, setSearching] = useState(false);
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);
+  const searchBoxRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     const loadMap = () => {
       if (mapInstanceRef.current) return;
-      const map = new window.google.maps.Map(mapRef.current, {
+      const google = window.google;
+
+      const map = new google.maps.Map(mapRef.current, {
         center: { lat: 48, lng: 15 }, zoom: 4,
         styles: [
           { elementType: "geometry", stylers: [{ color: "#1a1208" }] },
@@ -298,112 +299,114 @@ function MapPicker({ onSelect, onClose }) {
           { elementType: "labels.text.stroke", stylers: [{ color: "#0a0703" }] },
           { featureType: "water", elementType: "geometry", stylers: [{ color: "#0a0f1a" }] },
           { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a1f0e" }] },
-          { featureType: "poi", stylers: [{ visibility: "off" }] },
+          { featureType: "poi", stylers: [{ visibility: "simplified" }] },
           { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#0f0b06" }] },
-        ]
-      });
-      map.addListener('click', async (e) => {
-        const lat = e.latLng.lat(), lng = e.latLng.lng();
-        if (markerRef.current) markerRef.current.setMap(null);
-        markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map });
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10&addressdetails=1`);
-        const data = await res.json();
-        const a = data.address || {};
-        // Broad city: prefer city > town > village > county, zoom=10 gives regional level
-        const city = a.city || a.town || a.municipality || a.village || a.county || a.state_district || "";
-        const country = a.country || "";
-        const barName = a.amenity || a.shop || a.building || "";
-        const loc = [barName, a.road, a.suburb].filter(Boolean).slice(0,2).join(", ") || data.display_name?.split(",").slice(0,2).join(", ") || "";
-        setPin({ location: loc, city });
+        ],
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
       });
       mapInstanceRef.current = map;
+
+      // Google Places Autocomplete on the search input
+      const searchBox = new google.maps.places.SearchBox(inputRef.current);
+      searchBoxRef.current = searchBox;
+      map.addListener("bounds_changed", () => searchBox.setBounds(map.getBounds()));
+
+      searchBox.addListener("places_changed", () => {
+        const places = searchBox.getPlaces();
+        if (!places || places.length === 0) return;
+        const place = places[0];
+        if (!place.geometry) return;
+        if (markerRef.current) markerRef.current.setMap(null);
+        markerRef.current = new google.maps.Marker({ position: place.geometry.location, map });
+        map.setCenter(place.geometry.location);
+        map.setZoom(16);
+        const city = extractCity(place.address_components || []);
+        const loc = place.name || place.formatted_address?.split(",").slice(0,2).join(", ") || "";
+        setPin({ location: loc, city });
+      });
+
+      // Click on map to drop pin
+      map.addListener("click", async (e) => {
+        const lat = e.latLng.lat(), lng = e.latLng.lng();
+        if (markerRef.current) markerRef.current.setMap(null);
+        markerRef.current = new google.maps.Marker({ position: { lat, lng }, map });
+        // Reverse geocode with Google
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+          if (status === "OK" && results[0]) {
+            const city = extractCity(results[0].address_components || []);
+            const loc = results[0].address_components?.slice(0,2).map(c=>c.long_name).join(", ") || results[0].formatted_address?.split(",").slice(0,2).join(", ") || "";
+            setPin({ location: loc, city });
+            if (inputRef.current) inputRef.current.value = results[0].formatted_address?.split(",").slice(0,2).join(", ") || "";
+          }
+        });
+      });
+
+      // Try get user location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          const { latitude: lat, longitude: lng } = pos.coords;
+          map.setCenter({ lat, lng });
+          map.setZoom(13);
+        }, () => {});
+      }
     };
-    if (window.google && window.google.maps) { loadMap(); }
-    else {
-      const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyAF5TBYdp44LkdpzYE8524GRu1syGvicYQ`;
-      s.onload = loadMap; document.head.appendChild(s);
-    }
+
+    const loadScript = () => {
+      if (window.google && window.google.maps && window.google.maps.places) { loadMap(); return; }
+      if (document.getElementById("gmaps-script")) {
+        document.getElementById("gmaps-script").addEventListener("load", loadMap);
+        return;
+      }
+      const s = document.createElement("script");
+      s.id = "gmaps-script";
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
+      s.onload = loadMap;
+      document.head.appendChild(s);
+    };
+    loadScript();
     return () => { mapInstanceRef.current = null; };
   }, []);
 
-  const search = async () => {
-    if (!query.trim()) return; setSearching(true);
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`);
-    setResults(await res.json()); setSearching(false);
-  };
-
-  const selectResult = (r) => {
-    const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
-    if (markerRef.current) markerRef.current.setMap(null);
-    markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map: mapInstanceRef.current });
-    mapInstanceRef.current.setCenter({ lat, lng });
-    mapInstanceRef.current.setZoom(14);
-    const a = r.address || {};
-    const city = a.city || a.town || a.municipality || a.village || a.county || r.display_name.split(",").slice(-3,-2)[0]?.trim() || "";
-    const loc = r.display_name.split(",").slice(0, 2).join(", ");
-    setPin({ location: loc, city }); setResults([]); setQuery(loc);
-  };
+  function extractCity(components) {
+    const types = ["locality", "postal_town", "administrative_area_level_2", "administrative_area_level_1"];
+    for (const t of types) {
+      const c = components.find(c => c.types.includes(t));
+      if (c) return c.long_name;
+    }
+    return "";
+  }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 16 }}>
-      <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 20, width: "100%", maxWidth: 600, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid #2a1f0e" }}>
-          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, color: "#C8923A", marginBottom: 12 }}>📍 Drop a pin</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && search()}
-              placeholder="Search for a bar or city..." style={{ flex: 1, background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 14px", color: "#e8d5b0", fontSize: 14, outline: "none" }} />
-            <button onClick={search} style={{ background: "#C8923A", border: "none", borderRadius: 10, padding: "10px 16px", color: "#0f0b06", fontWeight: 700, cursor: "pointer" }}>{searching ? "..." : "Search"}</button>
-            <button onClick={() => {
-              if (!navigator.geolocation) return alert("GPS not available");
-              navigator.geolocation.getCurrentPosition(async pos => {
-                const { latitude: lat, longitude: lng } = pos.coords;
-                if (markerRef.current) markerRef.current.setMap(null);
-                markerRef.current = new window.google.maps.Marker({ position: { lat, lng }, map: mapInstanceRef.current });
-                mapInstanceRef.current.setCenter({ lat, lng });
-                mapInstanceRef.current.setZoom(16);
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10&addressdetails=1`);
-                const data = await res.json();
-                const a = data.address || {};
-                const city = a.city || a.town || a.municipality || a.village || a.county || a.state_district || "";
-                const barName = a.amenity || a.shop || a.building || "";
-                const loc = [barName, a.road, a.suburb].filter(Boolean).slice(0,2).join(", ") || data.display_name?.split(",").slice(0,2).join(", ") || "";
-                setPin({ location: loc, city }); setQuery(city || loc);
-              }, () => alert("Could not get location"));
-            }} style={{ background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#7a6a52", cursor: "pointer", fontSize: 18 }} title="Use my location">📍</button>
-          </div>
-          {results.length > 0 && (
-            <div style={{ marginTop: 8, background: "#0f0b06", borderRadius: 10, border: "1px solid #2a1f0e", overflow: "hidden" }}>
-              {results.map((r, i) => (
-                <div key={i} onClick={() => selectResult(r)} style={{ padding: "10px 14px", color: "#e8d5b0", fontSize: 13, cursor: "pointer", borderBottom: i < results.length-1 ? "1px solid #2a1f0e" : "none" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#1a1208"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  📍 {r.display_name.split(",").slice(0, 3).join(", ")}
-                </div>
-              ))}
-            </div>
-          )}
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 1000, display: "flex", flexDirection: "column" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 20, margin: 16, display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", maxHeight: "90vh" }}>
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid #2a1f0e", display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ color: "#C8923A", fontSize: 16 }}>📍</div>
+          <input ref={inputRef} type="text" placeholder="Search for a bar or city..." defaultValue=""
+            style={{ flex: 1, background: "#0f0b06", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 14px", color: "#e8d5b0", fontSize: 15, outline: "none" }} />
         </div>
         <div ref={mapRef} style={{ flex: 1, minHeight: 300 }} />
-        {pin ? (
-          <div style={{ padding: 12, borderTop: "1px solid #2a1f0e", background: "#0f0b06" }}>
-            <div style={{ color: "#C8923A", fontSize: 13, marginBottom: 10 }}>📍 {pin.location}</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={onClose} style={{ flex: 1, background: "transparent", border: "1px solid #3a2e1a", color: "#7a6a52", borderRadius: 10, padding: 10, cursor: "pointer" }}>Cancel</button>
-              <button onClick={() => onSelect(pin)} style={{ flex: 2, background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: 10, fontWeight: 700, cursor: "pointer" }}>Use this location</button>
+        <div style={{ padding: 12, borderTop: "1px solid #2a1f0e" }}>
+          {pin ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#e8d5b0", fontSize: 14, fontWeight: 700 }}>{pin.city || pin.location}</div>
+                {pin.location && pin.city && <div style={{ color: "#5a4a32", fontSize: 12 }}>{pin.location}</div>}
+              </div>
+              <button onClick={() => onSelect(pin)} style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 20px", fontWeight: 700, cursor: "pointer" }}>Use this location</button>
             </div>
-          </div>
-        ) : (
-          <div style={{ padding: 12, borderTop: "1px solid #2a1f0e", textAlign: "center" }}>
-            <div style={{ color: "#5a4a32", fontSize: 13 }}>Search or tap the map to drop a pin</div>
-            <button onClick={onClose} style={{ marginTop: 8, background: "transparent", border: "1px solid #3a2e1a", color: "#7a6a52", borderRadius: 10, padding: "8px 20px", cursor: "pointer" }}>Cancel</button>
-          </div>
-        )}
+          ) : (
+            <div style={{ color: "#5a4a32", fontSize: 13, textAlign: "center" }}>Search or tap the map to drop a pin</div>
+          )}
+          <button onClick={onClose} style={{ width: "100%", marginTop: 8, background: "transparent", border: "1px solid #3a2e1a", color: "#5a4a32", borderRadius: 10, padding: 10, cursor: "pointer" }}>Cancel</button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Login ─────────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [selected, setSelected] = useState(null);
   const [pin, setPin] = useState("");
