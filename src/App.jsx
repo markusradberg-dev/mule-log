@@ -303,6 +303,11 @@ function MapPicker({ onSelect, onClose }) {
   }
 
   useEffect(() => {
+    // Fix Google autocomplete dropdown z-index
+    const style = document.createElement("style");
+    style.innerHTML = ".pac-container { z-index: 9999 !important; }";
+    document.head.appendChild(style);
+
     const initMap = (google) => {
       if (mapInstanceRef.current) return;
       const map = new google.maps.Map(mapRef.current, {
