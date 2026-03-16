@@ -120,7 +120,10 @@ function fmtAvg(v) { return v % 1 === 0 ? String(v) : v.toFixed(1); }
 function getValueScore(mule) {
   const avg = getAvg(mule);
   if (!mule.price || mule.price <= 0) return null;
-  return (avg / 5) * (100 / mule.price) * 5;
+  // Price half as important: rating weighted 2x
+  const ratingScore = (avg / 5) * 100;
+  const priceScore = (50 / mule.price) * 100;
+  return (ratingScore * 2 + priceScore) / 3;
 }
 function fmtValue(v) { return v == null ? "—" : v.toFixed(2); }
 
@@ -233,7 +236,10 @@ function MapView({ mules, onSelectMule }) {
             fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${mule.id}`, { method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ lat, lng }) }).catch(() => {});
           }
           const avg = getAvg(mule);
-          const color = avg >= 4 ? '#C8923A' : avg >= 3 ? '#8a8a20' : '#c85050';
+          // Gradient: 1=red, 2=orange, 3=yellow, 4=yellow-green, 5=bright green
+          const color = avg >= 4.5 ? '#22cc44' : avg >= 4 ? '#66cc22' : avg >= 3.5 ? '#aacc00' : avg >= 3 ? '#ccaa00' : avg >= 2 ? '#cc6600' : '#cc2222';
+          const avg = getAvg(mule);
+          const color = avg >= 4.5 ? '#22cc44' : avg >= 4 ? '#66cc22' : avg >= 3.5 ? '#aacc00' : avg >= 3 ? '#ccaa00' : avg >= 2 ? '#cc6600' : '#cc2222';
           const svgMug = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
             <rect x="6" y="8" width="18" height="22" rx="3" fill="${color}" stroke="white" stroke-width="1.5"/>
             <rect x="5" y="8" width="20" height="4" rx="2" fill="${color}" stroke="white" stroke-width="1"/>
@@ -270,7 +276,7 @@ function MapView({ mules, onSelectMule }) {
           <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 16, color: "#C8923A" }}>🗺️ Mule Map</div>
           <div style={{ color: "#5a4a32", fontSize: 12 }}>{mules.length} mules — tap a pin to see details</div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 12, fontSize: 11, color: "#5a4a32" }}>
-            <span>🟠 Great (4+)</span><span>🟡 OK (3+)</span><span>🔴 Weak</span>
+            <span style={{color:"#22cc44"}}>● Great (4.5+)</span><span style={{color:"#aacc00"}}>● Good (3.5+)</span><span style={{color:"#cc6600"}}>● OK (2+)</span><span style={{color:"#cc2222"}}>● Weak</span>
           </div>
         </div>
         <div ref={mapRef} style={{ height: "calc(100vh - 320px)", minHeight: 400 }} />
@@ -426,6 +432,19 @@ function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [shake, setShake] = useState(false);
+  const [newMuleCount, setNewMuleCount] = useState(0);
+  useEffect(() => {
+    fetch(`${SUPABASE_URL}/rest/v1/mules?select=id,created_at&order=created_at.desc&limit=1`, { headers })
+      .then(r => r.json()).then(data => {
+        if (!data[0]) return;
+        const lastVisit = localStorage.getItem("lastVisit");
+        if (lastVisit) {
+          fetch(`${SUPABASE_URL}/rest/v1/mules?created_at=gt.${lastVisit}&select=id`, { headers })
+            .then(r => r.json()).then(d => setNewMuleCount(d.length));
+        }
+        localStorage.setItem("lastVisit", new Date().toISOString());
+      }).catch(() => {});
+  }, []);
   const handlePin = (digit) => {
     if (pin.length >= 4) return;
     const next = pin + digit; setPin(next);
@@ -442,7 +461,12 @@ function LoginScreen({ onLogin }) {
       <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
       <MuleLogo size={80} />
       <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, fontWeight: 900, color: "#C8923A", margin: "12px 0 4px" }}>The Mule Hunt</h1>
-      <p style={{ color: "#5a4a32", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: 40 }}>Who's drinking tonight?</p>
+      <p style={{ color: "#5a4a32", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", marginBottom: newMuleCount > 0 ? 16 : 40 }}>Who's drinking tonight?</p>
+      {newMuleCount > 0 && (
+        <div style={{ background: "#1a2a1a", border: "1px solid #22cc44", borderRadius: 20, padding: "8px 20px", marginBottom: 24, color: "#22cc44", fontSize: 13, textAlign: "center" }}>
+          🍺 {newMuleCount} new mule{newMuleCount > 1 ? "s" : ""} added since last visit!
+        </div>
+      )}
       {!selected ? (
         <div style={{ display: "flex", gap: 16 }}>
           {["Markus", "Anders"].map(name => (
@@ -821,10 +845,18 @@ function Leaderboard({ mules }) {
   const andersMules = mules.filter(m => m.tastedBy?.includes("Anders"));
   const markusAvg = markusMules.length ? markusMules.reduce((s,m) => s + getAvg(m), 0) / markusMules.length : 0;
   const andersAvg = andersMules.length ? andersMules.reduce((s,m) => s + getAvg(m), 0) / andersMules.length : 0;
-  const markusBest = markusMules.sort((a,b) => getAvg(b) - getAvg(a))[0];
-  const andersBest = andersMules.sort((a,b) => getAvg(b) - getAvg(a))[0];
-  const markusValue = markusMules.filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
-  const andersValue = andersMules.filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
+  const markusBest = [...markusMules].sort((a,b) => getAvg(b) - getAvg(a))[0];
+  const andersBest = [...andersMules].sort((a,b) => getAvg(b) - getAvg(a))[0];
+  const markusValue = [...markusMules].filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
+  const andersValue = [...andersMules].filter(m=>m.price).sort((a,b) => (getValueScore(b)||0) - (getValueScore(a)||0))[0];
+  // Milestones
+  const combined = mules.length;
+  const milestones = [10,25,50,100,200];
+  const medals = ["🥉","🥈","🥇","🏆","👑"];
+  const combinedBadges = milestones.filter(m => combined >= m);
+  const markusBadges = milestones.filter(m => markusMules.length >= m);
+  const andersBadges = milestones.filter(m => andersMules.length >= m);
+  const nextMilestone = milestones.find(m => combined < m);
   const topMules = [...mules].sort((a,b) => getAvg(b) - getAvg(a)).slice(0, 5);
   const lcities = [...new Set(mules.map(m => normalizeCity(m.city).toLowerCase()).filter(Boolean))];
   const topCity = lcities.sort((a,b) => mules.filter(m => normalizeCity(m.city)===b).length - mules.filter(m => normalizeCity(m.city)===a).length)[0];
@@ -855,9 +887,43 @@ function Leaderboard({ mules }) {
     <div style={{ padding: "0 24px 60px", maxWidth: 800, margin: "0 auto" }}>
       <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#C8923A", marginBottom: 20 }}>🏆 Leaderboard</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
-        {statBox("Mules Tried", markusMules.length, andersMules.length)}
+        {statBox("Mules Tasted", markusMules.length, andersMules.length)}
         {statBox("Avg Rating", fmtAvg(markusAvg), fmtAvg(andersAvg))}
       </div>
+      {/* Milestones */}
+      <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 20, marginBottom: 16 }}>
+        <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>🏅 Milestones</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {combinedBadges.length > 0 ? combinedBadges.map((m,i) => (
+            <div key={m} style={{ background: "#2a1f0e", borderRadius: 20, padding: "6px 14px", fontSize: 13, color: "#C8923A" }}>
+              {medals[milestones.indexOf(m)]} {m} mules together!
+            </div>
+          )) : <div style={{ color: "#5a4a32", fontSize: 13 }}>No milestones yet</div>}
+        </div>
+        {nextMilestone && (
+          <div>
+            <div style={{ color: "#5a4a32", fontSize: 12, marginBottom: 6 }}>Next: {nextMilestone} mules — {nextMilestone - combined} to go</div>
+            <div style={{ background: "#0f0b06", borderRadius: 20, height: 8, overflow: "hidden" }}>
+              <div style={{ background: "linear-gradient(90deg, #C8923A, #22cc44)", width: `${Math.min(100,(combined/nextMilestone)*100)}%`, height: "100%", borderRadius: 20, transition: "width 0.5s" }} />
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 16, marginTop: 14 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#5a4a32", fontSize: 11, marginBottom: 6 }}>🧔 Markus</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {markusBadges.length > 0 ? markusBadges.map(m => <span key={m} style={{ fontSize: 16 }}>{medals[milestones.indexOf(m)]}</span>) : <span style={{ color: "#3a2e1a", fontSize: 12 }}>No badges yet</span>}
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#5a4a32", fontSize: 11, marginBottom: 6 }}>👨 Anders</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {andersBadges.length > 0 ? andersBadges.map(m => <span key={m} style={{ fontSize: 16 }}>{medals[milestones.indexOf(m)]}</span>) : <span style={{ color: "#3a2e1a", fontSize: 12 }}>No badges yet</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 16, padding: 20, marginBottom: 20 }}>
         <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>🥇 Top 5 Mules Ever</div>
         {topMules.map((m, i) => (
@@ -904,7 +970,7 @@ export default function App() {
   const [editingMule, setEditingMule] = useState(null);
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("newest");
+  const [sortBy, setSortBy] = useState("date");
   const [filterTag, setFilterTag] = useState("");
   const [filterWho, setFilterWho] = useState("");
   const [tab, setTab] = useState("list");
@@ -941,8 +1007,9 @@ export default function App() {
     .filter(m => { if (!filterWho) return true; return m.tastedBy?.includes(filterWho); })
     .filter(m => !filterCity || normalizeCity(m.city) === filterCity)
     .sort((a, b) => {
+      if (sortBy === "date") return new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt);
+      if (sortBy === "date-old") return new Date(a.date || a.createdAt) - new Date(b.date || b.createdAt);
       if (sortBy === "newest") return new Date(b.createdAt) - new Date(a.createdAt);
-      if (sortBy === "oldest") return new Date(a.createdAt) - new Date(b.createdAt);
       if (sortBy === "rating-high") return getAvg(b) - getAvg(a);
       if (sortBy === "rating-low") return getAvg(a) - getAvg(b);
       if (sortBy === "name") return a.name.localeCompare(b.name);
@@ -1010,8 +1077,9 @@ export default function App() {
           <div style={{ padding: "14px 24px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", maxWidth: 1100, margin: "0 auto" }}>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search..." style={{ flex: "1 1 180px", background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 16px", color: "#e8d5b0", fontSize: 14, outline: "none" }} />
             <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ background: "#1a1208", border: "1px solid #3a2e1a", borderRadius: 10, padding: "10px 12px", color: "#e8d5b0", fontSize: 13, cursor: "pointer" }}>
-              <option value="newest">Newest</option>
-              <option value="oldest">Oldest</option>
+              <option value="date">Drink date ↓</option>
+              <option value="date-old">Drink date ↑</option>
+              <option value="newest">Last logged</option>
               <option value="rating-high">Top Rated</option>
               <option value="rating-low">Lowest Rated</option>
               <option value="value">Best Value 💚</option>
@@ -1039,7 +1107,23 @@ export default function App() {
 
           {/* Grid */}
           <div style={{ padding: "0 24px 60px", maxWidth: 1100, margin: "0 auto" }}>
-            {muleOfMonth && (
+            {filterCity && (() => {
+            const cityMules = filtered;
+            const best = [...cityMules].sort((a,b) => getAvg(b) - getAvg(a))[0];
+            if (!best) return null;
+            return (
+              <div style={{ marginBottom: 16, background: "linear-gradient(135deg, #0a1a0a, #0f1a0f)", border: "2px solid #22cc44", borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{ fontSize: 28 }}>🏅</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "#22cc44", fontSize: 11, textTransform: "uppercase", letterSpacing: 2, marginBottom: 2 }}>Best in {filterCity.charAt(0).toUpperCase() + filterCity.slice(1)}</div>
+                  <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 16, color: "#e8d5b0", fontWeight: 700 }}>{best.name}</div>
+                  <div style={{ color: "#5a4a32", fontSize: 12 }}>⭐ {fmtAvg(getAvg(best))}/5{best.price ? ` · ${best.price} SEK` : ""}</div>
+                </div>
+                {best.images?.[0] && <img src={best.images[0]} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: "1px solid #22cc44" }} />}
+              </div>
+            );
+          })()}
+          {muleOfMonth && (
             <div style={{ marginBottom: 20, background: "linear-gradient(135deg, #2a1a06, #1a1208)", border: "2px solid #C8923A", borderRadius: 16, padding: "16px 20px", display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ fontSize: 32 }}>⭐</div>
               <div style={{ flex: 1 }}>
