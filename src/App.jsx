@@ -236,9 +236,6 @@ function MapView({ mules, onSelectMule }) {
             fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${mule.id}`, { method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ lat, lng }) }).catch(() => {});
           }
           const avg = getAvg(mule);
-          // Gradient: 1=red, 2=orange, 3=yellow, 4=yellow-green, 5=bright green
-          const color = avg >= 4.5 ? '#22cc44' : avg >= 4 ? '#66cc22' : avg >= 3.5 ? '#aacc00' : avg >= 3 ? '#ccaa00' : avg >= 2 ? '#cc6600' : '#cc2222';
-          const avg = getAvg(mule);
           const color = avg >= 4.5 ? '#22cc44' : avg >= 4 ? '#66cc22' : avg >= 3.5 ? '#aacc00' : avg >= 3 ? '#ccaa00' : avg >= 2 ? '#cc6600' : '#cc2222';
           const svgMug = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
             <rect x="6" y="8" width="18" height="22" rx="3" fill="${color}" stroke="white" stroke-width="1.5"/>
