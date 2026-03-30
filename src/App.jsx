@@ -112,6 +112,8 @@ function rowToMule(row) {
 
 function getAvg(mule) {
   if (mule.ratingTaste != null && mule.ratingLooks != null) return (mule.ratingTaste + mule.ratingLooks) / 2;
+  // Legacy 0-5 scores: multiply by 2
+  if (mule.rating != null && mule.rating <= 5) return mule.rating * 2;
   return mule.rating || 0;
 }
 function fmtAvg(v) { return v % 1 === 0 ? String(v) : v.toFixed(1); }
@@ -121,7 +123,7 @@ function getValueScore(mule) {
   const avg = getAvg(mule);
   if (!mule.price || mule.price <= 0) return null;
   // Price half as important: rating weighted 2x
-  const ratingScore = (avg / 5) * 100;
+  const ratingScore = (avg / 10) * 100;
   const priceScore = (50 / mule.price) * 100;
   return (ratingScore * 2 + priceScore) / 3;
 }
@@ -163,17 +165,24 @@ function MuleLogo({ size = 60 }) {
 
 // ── Star Rating ───────────────────────────────────────────────────────────────
 function StarRating({ value, onChange, size = 24 }) {
-  const [hover, setHover] = useState(0);
-  const display = hover || value;
+  // 0-10 scale picker
+  const numbers = [0,1,2,3,4,5,6,7,8,9,10];
   return (
-    <div style={{ display: "flex", gap: 2 }}>
-      {[1,2,3,4,5].map(s => {
-        const full = display >= s, half = !full && display >= s - 0.5;
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+      {numbers.map(n => {
+        const active = value >= n && n > 0 || (n === 0 && value === 0);
+        const isSelected = value === n;
         return (
-          <span key={s} onClick={() => onChange && onChange(s)} onMouseEnter={() => onChange && setHover(s)} onMouseLeave={() => onChange && setHover(0)}
-            style={{ position: "relative", fontSize: size, cursor: onChange ? "pointer" : "default", lineHeight: 1, display: "inline-block" }}>
-            <span style={{ color: "#3a2e22" }}>&#9733;</span>
-            {(full || half) && <span style={{ position: "absolute", left: 0, top: 0, overflow: "hidden", width: full ? "100%" : "50%", color: "#C8923A" }}>&#9733;</span>}
+          <span key={n} onClick={() => onChange && onChange(n)}
+            style={{
+              width: size + 4, height: size + 4, display: "flex", alignItems: "center", justifyContent: "center",
+              borderRadius: 6, fontSize: size * 0.6, fontWeight: 700, cursor: onChange ? "pointer" : "default",
+              background: isSelected ? "#C8923A" : value > n ? "#3a2a10" : "#1a1208",
+              color: isSelected ? "#0f0b06" : value > n ? "#C8923A" : "#3a2e22",
+              border: isSelected ? "2px solid #C8923A" : "1px solid #2a1f0e",
+              transition: "all 0.1s",
+            }}>
+            {n}
           </span>
         );
       })}
@@ -236,7 +245,7 @@ function MapView({ mules, onSelectMule }) {
             fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${mule.id}`, { method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ lat, lng }) }).catch(() => {});
           }
           const avg = getAvg(mule);
-          const color = avg >= 4.5 ? '#22cc44' : avg >= 4 ? '#66cc22' : avg >= 3.5 ? '#aacc00' : avg >= 3 ? '#ccaa00' : avg >= 2 ? '#cc6600' : '#cc2222';
+          const color = avg >= 9 ? '#22cc44' : avg >= 8 ? '#66cc22' : avg >= 7 ? '#aacc00' : avg >= 6 ? '#ccaa00' : avg >= 4 ? '#cc6600' : '#cc2222';
           const svgMug = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
             <rect x="6" y="8" width="18" height="22" rx="3" fill="${color}" stroke="white" stroke-width="1.5"/>
             <rect x="5" y="8" width="20" height="4" rx="2" fill="${color}" stroke="white" stroke-width="1"/>
@@ -250,7 +259,7 @@ function MapView({ mules, onSelectMule }) {
             title: mule.name
           });
           const infoWindow = new window.google.maps.InfoWindow({
-            content: `<div style="font-family:Georgia,serif;padding:4px;min-width:140px"><b>${mule.name}</b><br><span style="color:#888;font-size:12px">📍 ${mule.city || mule.location}</span><br><span style="color:#C8923A;font-weight:bold">⭐ ${fmtAvg(avg)}/5</span>${mule.price ? `<br><span style="font-size:12px">💰 ${mule.price} SEK</span>` : ''}</div>`
+            content: `<div style="font-family:Georgia,serif;padding:4px;min-width:140px"><b>${mule.name}</b><br><span style="color:#888;font-size:12px">📍 ${mule.city || mule.location}</span><br><span style="color:#C8923A;font-weight:bold">⭐ ${fmtAvg(avg)}/10</span>${mule.price ? `<br><span style="font-size:12px">💰 ${mule.price} SEK</span>` : ''}</div>`
           });
           marker.addListener('click', () => { infoWindow.open(map, marker); onSelectMule(mule); });
         } catch(e) {}
@@ -597,7 +606,7 @@ function Modal({ mule, onClose, onDelete, onEdit }) {
           <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, color: "#e8d5b0", fontWeight: 700, marginBottom: 8 }}>{mule.name}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
             <StarRating value={avg} size={22} />
-            <span style={{ color: "#C8923A", fontWeight: 700, fontSize: 18 }}>{fmtAvg(avg)}/5</span>
+            <span style={{ color: "#C8923A", fontWeight: 700, fontSize: 18 }}>{fmtAvg(avg)}/10</span>
             {valueScore != null && <span style={{ background: "#0f2010", border: "1px solid #1a4020", borderRadius: 10, padding: "4px 10px", color: "#6aaa6a", fontSize: 13 }}>💚 Value: {fmtValue(valueScore)}</span>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -607,7 +616,7 @@ function Modal({ mule, onClose, onDelete, onEdit }) {
               { label: "Tasted by", value: tasted.full },
               { label: "Logged by", value: mule.addedBy || "—" },
               mule.price && { label: "Price", value: `💰 ${mule.price} SEK` },
-              (mule.ratingTaste != null && mule.ratingLooks != null) && { label: "Taste / Looks", value: `👅 ${mule.ratingTaste}/5  👁️ ${mule.ratingLooks}/5` },
+              (mule.ratingTaste != null && mule.ratingLooks != null) && { label: "Taste / Looks", value: `👅 ${mule.ratingTaste}/10  👁️ ${mule.ratingLooks}/10` },
             ].filter(Boolean).map(item => (
               <div key={item.label} style={{ background: "#0f0b06", borderRadius: 10, padding: 12, border: "1px solid #2a1f0e" }}>
                 <div style={{ color: "#5a4a32", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>{item.label}</div>
@@ -643,9 +652,9 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
     if (initialData) {
       const tb = Array.isArray(initialData.tastedBy) ? initialData.tastedBy : [];
       const tastedBy = tb.length === 2 ? "both" : tb[0] || "both";
-      return { name: initialData.name || "", location: initialData.location || "", city: initialData.city || "", ratingTaste: initialData.ratingTaste || 3, ratingLooks: initialData.ratingLooks || 3, date: initialData.date || new Date().toISOString().split("T")[0], notes: initialData.notes || "", tags: initialData.tags || [], images: initialData.images || (initialData.image ? [initialData.image] : []), price: initialData.price || "", tastedBy };
+      return { name: initialData.name || "", location: initialData.location || "", city: initialData.city || "", ratingTaste: initialData.ratingTaste || 6, ratingLooks: initialData.ratingLooks || 6, date: initialData.date || new Date().toISOString().split("T")[0], notes: initialData.notes || "", tags: initialData.tags || [], images: initialData.images || (initialData.image ? [initialData.image] : []), price: initialData.price || "", tastedBy };
     }
-    return { name: "", location: "", city: "", ratingTaste: 3, ratingLooks: 3, date: new Date().toISOString().split("T")[0], notes: "", tags: [], images: [], price: "", tastedBy: "both" };
+    return { name: "", location: "", city: "", ratingTaste: 6, ratingLooks: 6, date: new Date().toISOString().split("T")[0], notes: "", tags: [], images: [], price: "", tastedBy: "both" };
   });
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -719,7 +728,7 @@ function AddMuleForm({ onSave, onClose, currentUser, knownCities = [], editMode 
             </div>
             <div style={{ background: "#0f0b06", borderRadius: 10, padding: "10px 14px", border: "1px solid #2a1f0e", textAlign: "center" }}>
               <span style={{ color: "#5a4a32", fontSize: 12 }}>Overall: </span>
-              <span style={{ color: "#C8923A", fontWeight: 700, fontSize: 16 }}>{fmtAvg((form.ratingTaste + form.ratingLooks) / 2)} / 5</span>
+              <span style={{ color: "#C8923A", fontWeight: 700, fontSize: 16 }}>{fmtAvg((form.ratingTaste + form.ratingLooks) / 2)} / 10</span>
             </div>
             <div><label style={labelStyle}>Price (SEK)</label><input style={inputStyle} type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="e.g. 150" /></div>
             <div>
@@ -880,9 +889,39 @@ function Leaderboard({ mules }) {
     );
   };
 
+  const [migrating, setMigrating] = useState(false);
+  const [migrated, setMigrated] = useState(false);
+  const needsMigration = mules.some(m => (m.ratingTaste != null && m.ratingTaste <= 5 && m.ratingTaste > 0) || (m.ratingLooks != null && m.ratingLooks <= 5 && m.ratingLooks > 0));
+
+  const migrateScores = async () => {
+    setMigrating(true);
+    const toMigrate = mules.filter(m => (m.ratingTaste != null && m.ratingTaste <= 5) || (m.ratingLooks != null && m.ratingLooks <= 5));
+    for (const m of toMigrate) {
+      const newTaste = m.ratingTaste != null && m.ratingTaste <= 5 ? m.ratingTaste * 2 : m.ratingTaste;
+      const newLooks = m.ratingLooks != null && m.ratingLooks <= 5 ? m.ratingLooks * 2 : m.ratingLooks;
+      const newRating = (newTaste + newLooks) / 2;
+      await fetch(`${SUPABASE_URL}/rest/v1/mules?id=eq.${m.id}`, {
+        method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' },
+        body: JSON.stringify({ rating_taste: newTaste, rating_looks: newLooks, rating: newRating })
+      });
+    }
+    setMigrating(false);
+    setMigrated(true);
+    window.location.reload();
+  };
+
   return (
     <div style={{ padding: "0 24px 60px", maxWidth: 800, margin: "0 auto" }}>
       <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#C8923A", marginBottom: 20 }}>🏆 Leaderboard</div>
+      {needsMigration && !migrated && (
+        <div style={{ background: "#1a0f0a", border: "1px solid #C8923A", borderRadius: 14, padding: 16, marginBottom: 20 }}>
+          <div style={{ color: "#e8d5b0", fontSize: 14, marginBottom: 10 }}>⚠️ Old scores are on 0–5 scale. Convert all to 0–10?</div>
+          <button onClick={migrateScores} disabled={migrating}
+            style={{ background: "linear-gradient(135deg, #C8923A, #a06820)", border: "none", color: "#0f0b06", borderRadius: 10, padding: "10px 24px", fontWeight: 700, cursor: "pointer" }}>
+            {migrating ? "Converting..." : "Convert all scores to 0–10 ✓"}
+          </button>
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
         {statBox("Mules Tasted", markusMules.length, andersMules.length)}
         {statBox("Avg Rating", fmtAvg(markusAvg), fmtAvg(andersAvg))}
@@ -1114,7 +1153,7 @@ export default function App() {
                 <div style={{ flex: 1 }}>
                   <div style={{ color: "#22cc44", fontSize: 11, textTransform: "uppercase", letterSpacing: 2, marginBottom: 2 }}>Best in {filterCity.charAt(0).toUpperCase() + filterCity.slice(1)}</div>
                   <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 16, color: "#e8d5b0", fontWeight: 700 }}>{best.name}</div>
-                  <div style={{ color: "#5a4a32", fontSize: 12 }}>⭐ {fmtAvg(getAvg(best))}/5{best.price ? ` · ${best.price} SEK` : ""}</div>
+                  <div style={{ color: "#5a4a32", fontSize: 12 }}>⭐ {fmtAvg(getAvg(best))}/10{best.price ? ` · ${best.price} SEK` : ""}</div>
                 </div>
                 {best.images?.[0] && <img src={best.images[0]} style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: "1px solid #22cc44" }} />}
               </div>
@@ -1126,7 +1165,7 @@ export default function App() {
               <div style={{ flex: 1 }}>
                 <div style={{ color: "#C8923A", fontSize: 11, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Mule of the Month</div>
                 <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, color: "#e8d5b0", fontWeight: 700 }}>{muleOfMonth.name}</div>
-                <div style={{ color: "#7a6a52", fontSize: 13 }}>{getFlag(muleOfMonth)} {muleOfMonth.city || muleOfMonth.location} · ⭐ {fmtAvg(getAvg(muleOfMonth))}/5</div>
+                <div style={{ color: "#7a6a52", fontSize: 13 }}>{getFlag(muleOfMonth)} {muleOfMonth.city || muleOfMonth.location} · ⭐ {fmtAvg(getAvg(muleOfMonth))}/10</div>
               </div>
               {muleOfMonth.images && muleOfMonth.images[0] && <img src={muleOfMonth.images[0]} style={{ width: 64, height: 64, borderRadius: 10, objectFit: "cover", border: "1px solid #C8923A" }} />}
             </div>
