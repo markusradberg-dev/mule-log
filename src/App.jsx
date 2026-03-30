@@ -246,16 +246,35 @@ function MapView({ mules, onSelectMule }) {
           }
           const avg = getAvg(mule);
           const color = avg >= 9 ? '#22cc44' : avg >= 8 ? '#66cc22' : avg >= 7 ? '#aacc00' : avg >= 6 ? '#ccaa00' : avg >= 4 ? '#cc6600' : '#cc2222';
-          const svgMug = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
-            <rect x="6" y="8" width="18" height="22" rx="3" fill="${color}" stroke="white" stroke-width="1.5"/>
-            <rect x="5" y="8" width="20" height="4" rx="2" fill="${color}" stroke="white" stroke-width="1"/>
-            <path d="M24 13 Q31 13 31 19 Q31 25 24 25" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-            <line x1="11" y1="14" x2="11" y2="28" stroke="white" stroke-width="0.7" opacity="0.3"/>
-            <line x1="15" y1="14" x2="15" y2="28" stroke="white" stroke-width="0.7" opacity="0.3"/>
-          </svg>`;
+          const photo = mule.images && mule.images[0];
+          let markerIcon;
+          if (photo) {
+            // Photo pin - circle with photo and colored border
+            const svgPhoto = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="56" viewBox="0 0 48 56">
+              <defs>
+                <clipPath id="c${mule.id}">
+                  <circle cx="24" cy="22" r="20"/>
+                </clipPath>
+              </defs>
+              <circle cx="24" cy="22" r="22" fill="${color}"/>
+              <circle cx="24" cy="22" r="20" fill="white"/>
+              <image href="${photo}" x="4" y="2" width="40" height="40" clip-path="url(#c${mule.id})" preserveAspectRatio="xMidYMid slice"/>
+              <polygon points="24,54 16,38 32,38" fill="${color}"/>
+            </svg>`;
+            markerIcon = { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgPhoto), scaledSize: new window.google.maps.Size(48, 56), anchor: new window.google.maps.Point(24, 54) };
+          } else {
+            const svgMug = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+              <rect x="6" y="8" width="18" height="22" rx="3" fill="${color}" stroke="white" stroke-width="1.5"/>
+              <rect x="5" y="8" width="20" height="4" rx="2" fill="${color}" stroke="white" stroke-width="1"/>
+              <path d="M24 13 Q31 13 31 19 Q31 25 24 25" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+              <line x1="11" y1="14" x2="11" y2="28" stroke="white" stroke-width="0.7" opacity="0.3"/>
+              <line x1="15" y1="14" x2="15" y2="28" stroke="white" stroke-width="0.7" opacity="0.3"/>
+            </svg>`;
+            markerIcon = { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgMug), scaledSize: new window.google.maps.Size(36, 36), anchor: new window.google.maps.Point(18, 18) };
+          }
           const marker = new window.google.maps.Marker({
             position: { lat, lng }, map,
-            icon: { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgMug), scaledSize: new window.google.maps.Size(36, 36), anchor: new window.google.maps.Point(18, 18) },
+            icon: markerIcon,
             title: mule.name
           });
           const infoWindow = new window.google.maps.InfoWindow({
