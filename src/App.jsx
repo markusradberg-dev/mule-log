@@ -1014,8 +1014,8 @@ export default function App() {
   const [showH2H, setShowH2H] = useState(false);
   const [mapCountry, setMapCountry] = useState("");
 
-  const load = async () => {
-    try { setError(null); const rows = await dbGetAll(); setMules(rows.map(rowToMule)); }
+  const load = async (silent = false) => {
+    try { setError(null); if (!silent) setLoading(true); const rows = await dbGetAll(); setMules(rows.map(rowToMule)); }
     catch (e) { setError("Could not connect to database."); }
     finally { setLoading(false); }
   };
@@ -1027,7 +1027,7 @@ export default function App() {
     try {
       await dbUpdate(editingMule.id, { ...mule, rating: (mule.ratingTaste + mule.ratingLooks) / 2 });
       setEditingMule(null);
-      await load();
+      await load(true);
     } catch(e) {
       alert("Save failed: " + e.message);
     }
