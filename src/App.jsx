@@ -1027,7 +1027,7 @@ export default function App() {
     try {
       await dbUpdate(editingMule.id, { ...mule, rating: (mule.ratingTaste + mule.ratingLooks) / 2 });
       setEditingMule(null);
-      window.location.reload();
+      await load();
     } catch(e) {
       alert("Save failed: " + e.message);
     }
